@@ -29,31 +29,14 @@ void *memmove(void *dest, const void *src, uint64_t n);
 /// @param c address to set
 /// @param n size
 /// @return void
-static inline void *memset(void *s, int c, uint64_t n) {
-    uint8_t *p = (uint8_t *)s;
-
-    for (uint64_t i = 0; i < n; i++) {
-        p[i] = (uint8_t)c;
-    }
-
-    return s;
-}
+void *memset(void *s, int c, uint64_t n);
 
 /// @brief copy memory from one location to another
 /// @param dest destination
 /// @param src source
 /// @param n size
 /// @return dest
-static inline void *memcpy(void *dest, const void *src, uint64_t n) {
-    uint8_t *pdest = (uint8_t *)dest;
-    const uint8_t *psrc = (const uint8_t *)src;
-
-    for (uint64_t i = 0; i < n; i++) {
-        *pdest++ = *psrc++;
-    }
-
-    return dest;
-}
+void *memcpy(void *dest, const void *src, uint64_t n);
 
 /// @brief copy memory from one location to another for userspace
 /// @param dest destination
@@ -118,7 +101,5 @@ char *strtok_r(char *s, const char *delim, char **save);
 
 char *strdup(const char *s);
 size_t strnlen(const char *s, uint64_t n);
-
-char *strncat(char *restrict dest, const char *restrict src, uint64_t n);
 
 #endif

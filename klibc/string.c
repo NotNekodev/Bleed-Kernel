@@ -43,6 +43,27 @@ int memcmp(const void *s1, const void *s2, uint64_t n) {
     return 0;
 }
 
+void *memcpy(void *dest, const void *src, uint64_t n) {
+    uint8_t *pdest = (uint8_t *)dest;
+    const uint8_t *psrc = (const uint8_t *)src;
+
+    for (uint64_t i = 0; i < n; i++) {
+        *pdest++ = *psrc++;
+    }
+
+    return dest;
+}
+
+void *memset(void *s, int c, uint64_t n) {
+    uint8_t *p = (uint8_t *)s;
+
+    for (uint64_t i = 0; i < n; i++) {
+        p[i] = (uint8_t)c;
+    }
+
+    return s;
+}
+
 /// @brief gets the length of a string
 /// @param string string to evaluate
 /// @return uint32 length
@@ -243,21 +264,4 @@ size_t strnlen(const char *s, uint64_t n) {
         len++;
     }
     return len;
-}
-
-char *strncat(char *restrict dest, const char *restrict src, uint64_t n) {
-    char *d = dest;
-
-    while (*d != '\0') {
-        d++;
-    }
-
-    uint64_t i;
-    for (i = 0; i < n && src[i] != '\0'; i++) {
-        d[i] = src[i];
-    }
-
-    d[i] = '\0';
-
-    return dest;
 }

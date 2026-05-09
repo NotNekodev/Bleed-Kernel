@@ -31,9 +31,9 @@ static void set_gdt_gate(uint8_t idx, uint32_t base, uint32_t limit, uint8_t acc
 void gdt_init(){
     set_gdt_gate(0, 0, 0, 0, 0);
     set_gdt_gate(1, 0, 0xFFFFF, 0x9A, 0xA);
-    set_gdt_gate(2, 0, 0xFFFFF, 0x92, 0xC);
+    set_gdt_gate(2, 0, 0xFFFFF, 0x92, 0x0);
     set_gdt_gate(3, 0, 0xFFFFF, 0xFA, 0xA);
-    set_gdt_gate(4, 0, 0xFFFFF, 0xF2, 0xC);
+    set_gdt_gate(4, 0, 0xFFFFF, 0xF2, 0x0);
 
     gdt_ptr.address = (&gdt);
     gdt_ptr.length  = sizeof(gdt) - 1;

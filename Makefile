@@ -11,14 +11,29 @@ BUILD_GIT_COUNT := $(shell git rev-list --count HEAD 2>/dev/null || echo 0)
 BUILD_GIT_DIRTY := $(shell if git diff --quiet --ignore-submodules HEAD >/dev/null 2>&1; then echo ""; else echo "-dirty"; fi)
 BUILD_VERSION := r$(BUILD_GIT_COUNT)-g$(BUILD_GIT_HASH)$(BUILD_GIT_DIRTY)
 
+MAKEFLAGS += --no-print-directory
+
 IDE_DISK := idedisk.img
 SATA_DISK := satadisk.img
 NVME_DISK := nvmedisk.img
 DISK_SIZE_MB := 128
 
+UNAME_S := $(shell uname -s)
+UNAME_M := $(shell uname -m)
+
+ifeq ($(UNAME_S)$(UNAME_M),Darwinarm64)
+CC := x86_64-elf-gcc
+LD := x86_64-elf-ld
+NM := x86_64-elf-nm
+AR := x86_64-elf-ar
+AS := x86_64-elf-as
+USERPROG_TOOLCHAIN := CC=x86_64-elf-gcc AR=x86_64-elf-ar AS=x86_64-elf-as
+else
 CC := cc
 LD := ld
 NM := nm
+USERPROG_TOOLCHAIN :=
+endif
 
 CFLAGS := -g -O2 -Wall -Werror -Wextra -std=gnu11 \
           -nostdinc -ffreestanding -fno-stack-protector \
@@ -46,12 +61,12 @@ KERNEL_NM := bin/kernel.nm
 KERNEL_SYM := initrd/etc/kernel.sym
 
 USER_REPOS := \
-    "https://codeberg.org/Bleed-Kernel/Verdict-Shell verdict" \
-    "https://codeberg.org/Bleed-Kernel/Bleed-Doom doom" \
-    "https://codeberg.org/Bleed-Kernel/Bleed-Taskman taskman" \
-    "https://codeberg.org/Bleed-Kernel/Bleed-tvi tvi" \
-    "https://codeberg.org/Bleed-Kernel/Bleed-Coreutils cat" \
-    "https://codeberg.org/Bleed-Kernel/Bleed-Coreutils echo" \
+    "https://github.com/Bleed-Kernel/Verdict-Shell verdict" \
+    "https://github.com/Bleed-Kernel/Bleed-Doom doom" \
+    "https://github.com/Bleed-Kernel/Bleed-Taskman taskman" \
+    "https://github.com/Bleed-Kernel/Bleed-tvi tvi" \
+    "https://github.com/Bleed-Kernel/Bleed-Coreutils cat" \
+    "https://github.com/Bleed-Kernel/Bleed-Coreutils echo" \
 
 USER_BIN_DIR := external/
 INITRD_BIN := initrd/bin
@@ -71,38 +86,42 @@ $(PROC_VERSION_FILE): FORCE
 
 $(OBJDIR)/%.o: %.c
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	@echo "[CC] $<"
+	@$(CC) $(CFLAGS) -c $< -o $@
 
 $(OBJDIR)/%.o: %.S
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	@echo "[AS] $<"
+	@$(CC) $(CFLAGS) -c $< -o $@
 
 $(KERNEL_BIN): $(OBJ)
 	@mkdir -p $(dir $@)
-	$(LD) $(LDFLAGS) $(OBJ) -o $@
+	@echo "[LD] $@"
+	@$(LD) $(LDFLAGS) $(OBJ) -o $@
 
 $(MK_SYMTAB): tools/mksymtab.c
 	@mkdir -p $(dir $@)
-	$(CC) -O2 -Wall -Wextra -std=gnu11 $< -o $@
+	@echo "[CC] $<"
+	@cc -O2 -Wall -Wextra -std=gnu11 $< -o $@
 
 $(KERNEL_NM): $(KERNEL_BIN)
 	@mkdir -p $(dir $@)
-	$(NM) -n $(KERNEL_BIN) > $@
+	@$(NM) -n $(KERNEL_BIN) > $@
 
 $(KERNEL_SYM): $(KERNEL_NM) $(MK_SYMTAB)
 	@mkdir -p $(dir $@)
-	$(MK_SYMTAB) $(KERNEL_NM) $@
+	@$(MK_SYMTAB) $(KERNEL_NM) $@
 
 limine/limine:
 	rm -rf limine
-	git clone https://codeberg.org/Limine/Limine.git limine --branch v10.5.0-binary --depth 1
+	git clone https://github.com/limine-bootloader/limine limine --branch v10.5.0-binary --depth 1
 	cd limine && git checkout $(LIMINE_10_5_0)
 
 .PHONY: userprogs
 userprogs:
 	@mkdir -p $(USER_BIN_DIR)
 	@mkdir -p $(INITRD_BIN)
-	@for entry in $(USER_REPOS); do \
+	@set -e; for entry in $(USER_REPOS); do \
 		repo=$${entry%% *}; \
 		name=$${entry##* }; \
 		dir=$(USER_BIN_DIR)/$$name; \
@@ -114,9 +133,9 @@ userprogs:
 			(cd "$$dir" && git pull --rebase); \
 		fi; \
 		echo "[USER] Preparing blibc for $$name"; \
-		$(MAKE) -C "$$dir" blibc; \
+		$(MAKE) -s -C "$$dir" blibc $(USERPROG_TOOLCHAIN); \
 		echo "[USER] Building $$name"; \
-		$(MAKE) -C "$$dir"; \
+		$(MAKE) -s -C "$$dir" $(USERPROG_TOOLCHAIN); \
 		if [ -f "$$dir/bin/$$name" ]; then \
 			cp "$$dir/bin/$$name" $(INITRD_BIN)/$$name; \
 		else \
@@ -128,39 +147,40 @@ userprogs:
 .PHONY: initrd
 initrd: $(KERNEL_BIN) $(KERNEL_SYM) $(PROC_VERSION_FILE) userprogs
 	@mkdir -p initrd
-	tar -cf initrd/initrd.tar initrd/*/* initrd/*.*
+	@tar -cf initrd/initrd.tar initrd/*/* initrd/*.*
 
 $(IMAGE_NAME).iso: limine/limine $(KERNEL_BIN) initrd
-	rm -rf iso_root
-	mkdir -p iso_root/boot
-	cp -v $(KERNEL_BIN) iso_root/boot/
-	cp -v wallpaper.png iso_root/
-	mkdir -p iso_root/boot/limine
-	cp -v limine.conf limine/limine-bios.sys limine/limine-bios-cd.bin \
+	@rm -rf iso_root
+	@mkdir -p iso_root/boot
+	@cp $(KERNEL_BIN) iso_root/boot/
+	@cp wallpaper.png iso_root/
+	@mkdir -p iso_root/boot/limine
+	@cp limine.conf limine/limine-bios.sys limine/limine-bios-cd.bin \
 		limine/limine-uefi-cd.bin iso_root/boot/limine/
-	mkdir -p iso_root/EFI/BOOT
-	cp -v limine/BOOTX64.EFI iso_root/EFI/BOOT/
-	cp -v limine/BOOTIA32.EFI iso_root/EFI/BOOT/
-	cp -v initrd/initrd.tar iso_root/boot/
-	xorriso -as mkisofs -R -r -J \
+	@mkdir -p iso_root/EFI/BOOT
+	@cp limine/BOOTX64.EFI iso_root/EFI/BOOT/
+	@cp limine/BOOTIA32.EFI iso_root/EFI/BOOT/
+	@cp initrd/initrd.tar iso_root/boot/
+	@echo "[ISO] $(IMAGE_NAME).iso"
+	@xorriso -as mkisofs -R -r -J \
 		-b boot/limine/limine-bios-cd.bin \
 		-no-emul-boot -boot-load-size 4 -boot-info-table \
 		--efi-boot boot/limine/limine-uefi-cd.bin \
 		-efi-boot-part --efi-boot-image \
 		--protective-msdos-label \
-		iso_root -o $(IMAGE_NAME).iso
-	rm -rf iso_root
+		iso_root -o $(IMAGE_NAME).iso 2>/dev/null
+	@rm -rf iso_root
 
 .PHONY: run
 run: $(IMAGE_NAME).iso $(IDE_DISK) $(SATA_DISK) $(NVME_DISK)
 	qemu-system-x86_64 \
-		--cdrom $(IMAGE_NAME).iso \
-		--enable-kvm \
-		-cpu host \
+		-cdrom $(IMAGE_NAME).iso \
+		$(if $(filter Darwinarm64,$(UNAME_S)$(UNAME_M)), \
+			-accel tcg -cpu max -display cocoa, \
+			--enable-kvm -cpu host -display sdl) \
 		-boot d \
 		-m $(MEMSZ) \
 		-serial stdio \
-		-display sdl \
 		-drive format=raw,file=$(IDE_DISK) \
 		-device ich9-ahci,id=ahci \
 		-drive file=$(SATA_DISK),format=raw,if=none,id=sata0 \
@@ -172,13 +192,31 @@ run: $(IMAGE_NAME).iso $(IDE_DISK) $(SATA_DISK) $(NVME_DISK)
 run-uefi: $(IMAGE_NAME).iso $(IDE_DISK) $(SATA_DISK) $(NVME_DISK)
 	qemu-system-x86_64 \
 		-drive if=pflash,format=raw,readonly=on,file=$(OVMF_FW) \
-		--cdrom $(IMAGE_NAME).iso \
-		--enable-kvm \
-		-cpu host \
+		-cdrom $(IMAGE_NAME).iso \
+		$(if $(filter Darwinarm64,$(UNAME_S)$(UNAME_M)), \
+			-accel tcg -cpu max -display cocoa, \
+			--enable-kvm -cpu host -display sdl) \
 		-boot d \
 		-m $(MEMSZ) \
 		-serial stdio \
-		-display sdl \
+		-drive format=raw,file=$(IDE_DISK) \
+		-device ich9-ahci,id=ahci \
+		-drive file=$(SATA_DISK),format=raw,if=none,id=sata0 \
+		-device ide-hd,drive=sata0,bus=ahci.0 \
+		-drive file=$(NVME_DISK),format=raw,if=none,id=nvm0 \
+		-device nvme,serial=bleed-nvme-1,drive=nvm0
+
+.PHONY: run-mac
+run-mac: $(IMAGE_NAME).iso $(IDE_DISK) $(SATA_DISK) $(NVME_DISK)
+	qemu-system-x86_64 \
+		-drive if=pflash,format=raw,readonly=on,file=$(OVMF_FW) \
+		-cdrom $(IMAGE_NAME).iso \
+		-accel tcg \
+		-cpu max \
+		-m $(MEMSZ) \
+		-boot d \
+		-serial stdio \
+		-display cocoa \
 		-drive format=raw,file=$(IDE_DISK) \
 		-device ich9-ahci,id=ahci \
 		-drive file=$(SATA_DISK),format=raw,if=none,id=sata0 \
@@ -187,15 +225,22 @@ run-uefi: $(IMAGE_NAME).iso $(IDE_DISK) $(SATA_DISK) $(NVME_DISK)
 		-device nvme,serial=bleed-nvme-1,drive=nvm0
 
 define create_ext2_disk
-	@echo "[DISK] Creating $(1) ($(2))"
-	@dd if=/dev/zero of=$(1) bs=1M count=$(DISK_SIZE_MB) status=none
-	@parted -s $(1) mklabel $(2) mkpart primary ext2 1MiB 100%
-	@mkdir -p .$(1)_dir
-	@echo "$(3)" > .$(1)_dir/hello.txt
-	@truncate -s $$(($(DISK_SIZE_MB) - 1))M .$(1).tmp
-	@mkfs.ext2 -F -d .$(1)_dir .$(1).tmp > /dev/null 2>&1
-	@dd if=.$(1).tmp of=$(1) bs=1M seek=1 conv=notrunc status=none
-	@rm -rf .$(1).tmp .$(1)_dir
+    @echo "[DISK] Creating $(1) ($(2))"
+    $(eval TMP_DIR := .tmp_dir_$(1))
+    $(eval TMP_IMG := .tmp_img_$(1))
+    @export PATH=$$PATH:/sbin:/usr/sbin; \
+    dd if=/dev/zero of=$(1) bs=1M count=$(DISK_SIZE_MB) status=none; \
+    if [ "$(2)" = "gpt" ]; then \
+        sgdisk -n 1:2048:0 -t 1:8300 $(1) > /dev/null 2>&1; \
+    else \
+        { printf 'o\nn\np\n1\n2048\n\nw\n'; } | fdisk $(1) > /dev/null 2>&1; \
+    fi; \
+    mkdir -p $(TMP_DIR); \
+    echo "$(3)" > $(TMP_DIR)/hello.txt; \
+    truncate -s $$(($(DISK_SIZE_MB) - 1))M $(TMP_IMG); \
+    mkfs.ext2 -F -d $(TMP_DIR) $(TMP_IMG) > /dev/null 2>&1; \
+    dd if=$(TMP_IMG) of=$(1) bs=1M seek=1 conv=notrunc status=none; \
+    rm -rf $(TMP_IMG) $(TMP_DIR)
 endef
 
 $(IDE_DISK):
