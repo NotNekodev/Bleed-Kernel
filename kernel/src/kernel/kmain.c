@@ -241,7 +241,7 @@ void shell_start() {
 void kmain() {
     asm volatile ("cli");
     early_fb_init();
-    EARLY_OK("Welcome to the Bleed Kernel, this part should go pretty quick."); 
+    EARLY_OK("Welcome to the Bleed Kernel, if you can read this, something has probably gone wrong. sorry"); 
     gdt_init();         EARLY_OK("GDT");
     sse_enable();       EARLY_OK("SIMD");
     serial_init();      EARLY_OK("Serial");

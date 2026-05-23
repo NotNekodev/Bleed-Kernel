@@ -63,6 +63,7 @@ KERNEL_SYM := initrd/etc/kernel.sym
 USER_REPOS := \
     "https://github.com/Bleed-Kernel/Verdict-Shell verdict" \
     "https://github.com/Bleed-Kernel/Bleed-Doom doom" \
+	"https://github.com/Bleed-Kernel/Bleed-Quake2 quake2" \
     "https://github.com/Bleed-Kernel/Bleed-Taskman taskman" \
     "https://github.com/Bleed-Kernel/Bleed-tvi tvi" \
     "https://github.com/Bleed-Kernel/Bleed-Coreutils cat" \
