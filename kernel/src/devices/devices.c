@@ -28,8 +28,7 @@ long device_register(INode_t *device, char *name){
     size_t devidx = device_list_count;
 
     for (size_t i = 0; i < device_list_count; i++){
-        if (device_list[i].name == name || 
-            strcmp(device_list[i].name, name) == 0){
+        if (strcmp(device_list[i].name, name) == 0){
             spinlock_release(&device_list_lock);
             return -DEV_EXISTS;
         }
@@ -59,7 +58,12 @@ long device_register(INode_t *device, char *name){
     devicenode->type = INODE_DEVICE;
 
     device_list[devidx].inode = device;
-    device_list[devidx].name = name;
+    device_list[devidx].name = strdup(name);
+    if (!device_list[devidx].name) {
+        vfs_drop(devdir);
+        spinlock_release(&device_list_lock);
+        return -OUT_OF_MEMORY;
+    }
     device_list_count++;
     vfs_drop(devdir);
     spinlock_release(&device_list_lock);
