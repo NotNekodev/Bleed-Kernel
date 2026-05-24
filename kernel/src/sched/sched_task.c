@@ -53,7 +53,7 @@ static void free_pid(int pid) {
 static void free_user_alloc_list(user_alloc_t *list) {
     while (list) {
         user_alloc_t *next = list->next;
-        kfree(list, sizeof(user_alloc_t));
+        kfree(list);
         list = next;
     }
 }
@@ -267,7 +267,7 @@ task_t *sched_fork_from_context(cpu_context_t *parent_ctx) {
 
     uint64_t pid = alloc_pid();
     if (pid == (uint64_t)-1 || pid == 0) {
-        kfree(child, sizeof(task_t));
+        kfree(child);
         paging_destroy_address_space(child_cr3);
         return NULL;
     }
@@ -301,7 +301,7 @@ task_t *sched_fork_from_context(cpu_context_t *parent_ctx) {
     child->kernel_stack = kmalloc(KERNEL_STACK_SIZE);
     if (!child->kernel_stack) {
         free_pid((int)pid);
-        kfree(child, sizeof(task_t));
+        kfree(child);
         paging_destroy_address_space(child_cr3);
         return NULL;
     }
@@ -315,8 +315,8 @@ task_t *sched_fork_from_context(cpu_context_t *parent_ctx) {
     child->fd_table = vfs_fd_table_clone(parent->fd_table);
     if (!child->fd_table) {
         free_pid((int)pid);
-        kfree(child->kernel_stack, KERNEL_STACK_SIZE);
-        kfree(child, sizeof(task_t));
+        kfree(child->kernel_stack);
+        kfree(child);
         paging_destroy_address_space(child_cr3);
         return NULL;
     }
@@ -325,8 +325,8 @@ task_t *sched_fork_from_context(cpu_context_t *parent_ctx) {
     if (parent->alloc_list && !child->alloc_list) {
         free_pid((int)pid);
         vfs_fd_table_drop(child->fd_table);
-        kfree(child->kernel_stack, KERNEL_STACK_SIZE);
-        kfree(child, sizeof(task_t));
+        kfree(child->kernel_stack);
+        kfree(child);
         paging_destroy_address_space(child_cr3);
         return NULL;
     }
@@ -337,8 +337,8 @@ task_t *sched_fork_from_context(cpu_context_t *parent_ctx) {
             free_pid((int)pid);
             free_user_alloc_list(child->alloc_list);
             vfs_fd_table_drop(child->fd_table);
-            kfree(child->kernel_stack, KERNEL_STACK_SIZE);
-            kfree(child, sizeof(task_t));
+            kfree(child->kernel_stack);
+            kfree(child);
             paging_destroy_address_space(child_cr3);
             return NULL;
         }

@@ -140,11 +140,11 @@ void scheduler_reap(void) {
             irq_restore(flags);
 
             if (task->kernel_stack)
-                kfree(task->kernel_stack, KERNEL_STACK_SIZE);
+                kfree(task->kernel_stack);
 
             ipc_task_cleanup(task);
             paging_destroy_address_space(task->page_map);
-            kfree(task, sizeof(task_t));
+            kfree(task);
 
             reaped++;
         }

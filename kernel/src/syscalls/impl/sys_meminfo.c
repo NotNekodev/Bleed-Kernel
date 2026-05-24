@@ -14,15 +14,15 @@ int sys_meminfo(system_memory_info_t *user_buf) {
 
     task_t *caller = get_current_task();
     if (!caller) {
-        kfree(info, sizeof(system_memory_info_t));
+        kfree(info);
         return -ESRCH;
     }
 
     if (copy_to_user(caller, user_buf, info, sizeof(system_memory_info_t)) != 0) {
-        kfree(info, sizeof(system_memory_info_t));
+        kfree(info);
         return -EFAULT;
     }
 
-    kfree(info, sizeof(system_memory_info_t));
+    kfree(info);
     return 0;
 }

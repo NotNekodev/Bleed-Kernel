@@ -247,6 +247,7 @@ void kmain() {
     serial_init();      EARLY_OK("Serial");
     idt_init();         EARLY_OK("IDT");
     pmm_init();         EARLY_OK("Physical Memory Manager");
+    reinit_paging();    EARLY_OK("Paging Reinitalized");
     vfs_mount_root();   EARLY_OK("VFS Mount");
     initrd_load();      EARLY_OK("initrd Ram Disk");
     display_splash_screen("initrd/boot/splash.bgra", 200, 252);
@@ -259,7 +260,6 @@ void kmain() {
         kprintf(LOG_OK "Kernel symbols loaded from initrd/etc/kernel.sym\n");
     }
 
-    reinit_paging();    EARLY_OK("Paging Reinitalized");
     acpi_init();        EARLY_OK("ACPI Read");
     tss_init();         EARLY_OK("TSS Done");
     syscall_init();     EARLY_OK("Syscalls Setup");
@@ -308,6 +308,10 @@ void kmain() {
     shell_start();
 
     tty0 = kernel_console_init();
+
+    serial_printf(LOG_INFO "PMM: %lu MB free (%lu pages)\n",
+        pmm_available_pages() * 4096 / (1024 * 1024),
+        pmm_available_pages());
 
     for (;;) {
         if (kernel_has_shell_spawn_request()) {

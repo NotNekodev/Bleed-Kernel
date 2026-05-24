@@ -35,7 +35,7 @@ void partition_probe(void *drive_obj, int drive_idx, sector_reader_t reader, par
 
         // Read the Partition Entry Array
         if (reader(drive_obj, gpt_hdr.partition_array_lba, sectors_to_read, table) < 0) {
-            kfree(table, sectors_to_read * 512);
+            kfree(table);
             return;
         }
 
@@ -52,7 +52,7 @@ void partition_probe(void *drive_obj, int drive_idx, sector_reader_t reader, par
             
             reg_cb(drive_obj, drive_idx, i, e->first_lba, size, 0xEE);
         }
-        kfree(table, sectors_to_read * 512);
+        kfree(table);
 
     } else {
         serial_printf(LOG_INFO "Current Drive identified as MBR\n");

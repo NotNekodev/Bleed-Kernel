@@ -60,7 +60,7 @@ INode_t* tempfs_create_inode(int type, const INodeOps_t* ops){
             data->capacity = 0;
             data->data = NULL;
         }else{
-            kfree(inode, sizeof(*inode));
+            kfree(inode);
         }
     }
 
@@ -75,10 +75,10 @@ void tempfs_drop(INode_t* inode){
 
     while(data){
         tempfs_data_t* next = data->next_chunk;
-        kfree(data, TEMPFS_DATA_CHUNK_SIZE);
+        kfree(data);
         data = next;
     }
-    kfree(tempfs_inode, sizeof(tempfs_INode_t));
+    kfree(tempfs_inode);
     inode->internal_data = NULL;
 }
 
@@ -128,7 +128,7 @@ static int tempfs_truncate(INode_t* inode, size_t new_size){
     *prev_next = NULL;
     while (chunk) {
         tempfs_data_t* next = chunk->next_chunk;
-        kfree(chunk, TEMPFS_DATA_CHUNK_SIZE);
+        kfree(chunk);
         chunk = next;
     }
 
@@ -334,7 +334,7 @@ int tempfs_create(INode_t* parent, const char* name, size_t namelen, INode_t** r
     tempfs_INode_t* file_int = file->internal_data;
     if (namelen >= TEMPFS_MAX_NAME_LEN) {
         tempfs_drop(file);
-        kfree(file, sizeof(*file));
+        kfree(file);
         return status_print_error(NAME_LIMITS);
     }
     memcpy(file_int->name, name, namelen);

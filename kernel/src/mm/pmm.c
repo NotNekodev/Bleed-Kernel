@@ -8,34 +8,34 @@
 #include <stddef.h>
 #include <string.h>
 #include <status.h>
+#include <mm/paging.h>
 
-#define FRAME_USED      1
-#define FRAME_FREE      0
+#define FRAME_USED  1
+#define FRAME_FREE  0
 
-#define PAGE_ALIGN_DOWN(x)  (((x) / PAGE_SIZE) * PAGE_SIZE)
-#define PAGE_ALIGN_UP(x)    ((((x) + (PAGE_SIZE-1)) / PAGE_SIZE) * PAGE_SIZE)
+#define BIT_SET(bm, i)   ((bm)[(i) >> 3] |=  (uint8_t)(1u << ((i) & 7)))
+#define BIT_CLR(bm, i)   ((bm)[(i) >> 3] &= ~(uint8_t)(1u << ((i) & 7)))
+#define BIT_TST(bm, i)   ((bm)[(i) >> 3] &   (uint8_t)(1u << ((i) & 7)))
 
-static bitmap_entry_t* bitmap_head = NULL;
+#define PMM_MIN_REGION_PAGES  4
 
-uintptr_t get_max_paddr() {
-    struct limine_memmap_response* mmap = memmap_request.response;
+static bitmap_entry_t *bitmap_head = NULL;
+
+uintptr_t get_max_paddr(void) {
+    struct limine_memmap_response *mmap = memmap_request.response;
     uint64_t max = 0;
-
     for (uint64_t i = 0; i < mmap->entry_count; i++) {
-        struct limine_memmap_entry* entry = mmap->entries[i];
-        if (entry->type != LIMINE_MEMMAP_USABLE) continue;
-
-        uint64_t end = entry->base + entry->length;
+        struct limine_memmap_entry *e = mmap->entries[i];
+        if (e->type != LIMINE_MEMMAP_USABLE) continue;
+        uint64_t end = e->base + e->length;
         if (end > max) max = end;
     }
-
     return (uintptr_t)max;
 }
 
-size_t paging_get_usable_mem_size() {
-    struct limine_memmap_response* mmap = memmap_request.response;
+size_t paging_get_usable_mem_size(void) {
+    struct limine_memmap_response *mmap = memmap_request.response;
     size_t bytes = 0;
-
     for (size_t i = 0; i < mmap->entry_count; i++) {
         if (mmap->entries[i]->type == LIMINE_MEMMAP_USABLE)
             bytes += mmap->entries[i]->length;
@@ -43,80 +43,117 @@ size_t paging_get_usable_mem_size() {
     return bytes;
 }
 
-void paging_mark_entry_unavailable(bitmap_entry_t* entry, size_t start, size_t page_count) {
-    for (size_t i = 0; i < page_count; i++) {
-        size_t index = start + i;
-        entry->bitmap[index / 8] |= (FRAME_USED << (index % 8));
-    }
+void paging_mark_entry_unavailable(bitmap_entry_t *entry, size_t start, size_t page_count) {
+    for (size_t i = 0; i < page_count; i++)
+        BIT_SET(entry->bitmap, start + i);
     entry->available_pages -= page_count;
 }
 
-static void paging_mark_entry_available(bitmap_entry_t* entry, size_t start, size_t page_count) {
-    for (size_t i = 0; i < page_count; i++) {
-        size_t index = start + i;
-        entry->bitmap[index / 8] &= ~(FRAME_USED << (index % 8));
-    }
+static void paging_mark_entry_available(bitmap_entry_t *entry, size_t start, size_t page_count) {
+    for (size_t i = 0; i < page_count; i++)
+        BIT_CLR(entry->bitmap, start + i);
     entry->available_pages += page_count;
 }
 
-uint8_t pmm_init() {
-    struct limine_memmap_response* mmap = memmap_request.response;
-    struct limine_hhdm_response* hhdm = hhdm_request.response;
+uint8_t pmm_init(void) {
+    struct limine_memmap_response *mmap = memmap_request.response;
+    struct limine_hhdm_response   *hhdm = hhdm_request.response;
 
-    bitmap_entry_t** prev_tail = &bitmap_head;
+    bitmap_entry_t **prev_tail = &bitmap_head;
 
     for (uint64_t i = 0; i < mmap->entry_count; i++) {
-        if (mmap->entries[i]->type != LIMINE_MEMMAP_USABLE)
+        struct limine_memmap_entry *region = mmap->entries[i];
+        if (region->type != LIMINE_MEMMAP_USABLE)
             continue;
 
-        // store the bitmap safely 
-        uintptr_t bitmap_phys = PAGE_ALIGN_UP(mmap->entries[i]->base + PAGE_SIZE); 
-        bitmap_entry_t* bmentry = (bitmap_entry_t*)(bitmap_phys + hhdm->offset);
+        uintptr_t region_base = PAGE_ALIGN_UP(region->base);
+        uintptr_t region_end  = PAGE_ALIGN_DOWN(region->base + region->length);
+        if (region_end <= region_base)
+            continue;
 
-        *prev_tail = bmentry;
-        bmentry->next_entry = NULL;
-        prev_tail = &bmentry->next_entry;
+        size_t total_pages = (region_end - region_base) / PAGE_SIZE;
 
-        size_t total_pages = mmap->entries[i]->length / PAGE_SIZE;
+        size_t header_bytes = sizeof(bitmap_entry_t) + ((total_pages + 7) / 8);
+        size_t header_pages = (header_bytes + PAGE_SIZE - 1) / PAGE_SIZE;
 
-        // Reserve space for bitmap itself
-        size_t bitmap_bytes = sizeof(bitmap_entry_t) + ((total_pages + 7) / 8);
-        size_t bitmap_pages = PAGE_ALIGN_UP(bitmap_bytes) / PAGE_SIZE;
+        // waste more regions, we love this
+        if (total_pages < header_pages + PMM_MIN_REGION_PAGES) {
+            serial_printf(LOG_WARN "PMM: skipping tiny region 0x%lx (%zu pages)\n",
+                          (unsigned long)region_base, total_pages);
+            continue;
+        }
 
-        bmentry->capacity = total_pages - bitmap_pages;
-        bmentry->available_pages = bmentry->capacity;
-        bmentry->search_cursor = 0;
+        bitmap_entry_t *bm = (bitmap_entry_t *)(region_base + hhdm->offset);
 
-        memset(bmentry->bitmap, FRAME_FREE, (bmentry->capacity + 7) / 8);
+        *prev_tail       = bm;
+        bm->next_entry   = NULL;
+        prev_tail        = &bm->next_entry;
 
-        // Mark bitmap pages themselves
-        paging_mark_entry_unavailable(bmentry, 0, bitmap_pages);
+        bm->region_base    = region_base;
+        bm->header_pages   = header_pages;
+        bm->capacity       = total_pages - header_pages;
+        bm->available_pages = bm->capacity;
+        bm->search_cursor  = 0;
 
-        serial_printf(LOG_INFO "Bitmap created at %p, %d usable pages\n", (void*)bmentry, bmentry->available_pages);
+        memset(bm->bitmap, 0, (total_pages + 7) / 8);
+
+        paging_mark_entry_unavailable(bm, 0, header_pages);
+
+        serial_printf(LOG_INFO "PMM: region 0x%lx-0x%lx  header=%zu  usable=%zu pages\n",
+                      (unsigned long)region_base,
+                      (unsigned long)region_end,
+                      header_pages,
+                      bm->available_pages);
     }
 
-    serial_printf(LOG_OK "PMM Initialized\n");
+    serial_printf(LOG_OK "PMM: initialized, %zu MB free\n",
+                  pmm_available_pages() * PAGE_SIZE / (1024 * 1024));
     return 0;
 }
 
-static int64_t paging_bitmap_find_free_in_range(bitmap_entry_t* entry, size_t count, size_t begin, size_t end) {
-    size_t free_ext = 0;
-    size_t start = 0;
+static int64_t paging_bitmap_find_free_in_range(bitmap_entry_t *entry,
+                                                 size_t count,
+                                                 size_t begin,
+                                                 size_t end) {
+    if (count == 0 || begin >= end)
+        return -1;
 
-    for (size_t i = begin; i < end; i++) {
-        size_t byte = entry->bitmap[i / 8];
-        if (!(byte & (1 << (i % 8)))) {
-            if (free_ext == 0) start = i;
-            free_ext++;
-            if (free_ext == count) return start;
-        } else {
-            free_ext = 0;
+    size_t free_run = 0;
+    size_t run_start = 0;
+
+    size_t i = begin;
+
+    while (i < end) {
+        uint8_t byte = entry->bitmap[i >> 3];
+        if (byte == 0xFF) {
+            free_run = 0;
+            i = (i & ~(size_t)7) + 8;
+            continue;
         }
+
+        size_t bit_start = i & 7;
+        size_t bit_end   = 8;
+        if ((i & ~(size_t)7) + 8 > end)
+            bit_end = end & 7 ? end & 7 : 8;
+
+        for (size_t b = bit_start; b < bit_end; b++, i++) {
+            if (!(byte & (uint8_t)(1u << b))) {
+                if (free_run == 0) run_start = i;
+                free_run++;
+                if (free_run == count) return (int64_t)run_start;
+            } else {
+                free_run = 0;
+            }
+        }
+
+        if (!(i & 7)) continue;
+        i = (i & ~(size_t)7) + 8;
     }
+
     return -1;
 }
 
-static int64_t paging_bitmap_find_free(bitmap_entry_t* entry, size_t count) {
+static int64_t paging_bitmap_find_free(bitmap_entry_t *entry, size_t count) {
     if (!entry || !count || count > entry->capacity)
         return -1;
 
@@ -125,9 +162,8 @@ static int64_t paging_bitmap_find_free(bitmap_entry_t* entry, size_t count) {
         cursor = 0;
 
     int64_t start = paging_bitmap_find_free_in_range(entry, count, cursor, entry->capacity);
-    if (start < 0 && cursor != 0) {
+    if (start < 0 && cursor != 0)
         start = paging_bitmap_find_free_in_range(entry, count, 0, cursor);
-    }
 
     if (start >= 0) {
         entry->search_cursor = (size_t)start + count;
@@ -140,36 +176,51 @@ static int64_t paging_bitmap_find_free(bitmap_entry_t* entry, size_t count) {
 
 paddr_t pmm_alloc_pages(size_t page_count) {
     if (!page_count) return 0;
-    struct limine_hhdm_response* hhdm = hhdm_request.response;
 
-    for (bitmap_entry_t* head = bitmap_head; head != NULL; head = head->next_entry) {
-        if (head->available_pages >= page_count) {
-            int64_t start = paging_bitmap_find_free(head, page_count);
-            if (start < 0) continue;
+    for (bitmap_entry_t *bm = bitmap_head; bm != NULL; bm = bm->next_entry) {
+        if (bm->available_pages < page_count)
+            continue;
 
-            paging_mark_entry_unavailable(head, start, page_count);
-            uintptr_t paddr = ((uintptr_t)head - hhdm->offset) + (start * PAGE_SIZE);
+        int64_t start = paging_bitmap_find_free(bm, page_count);
+        if (start < 0)
+            continue;
 
-            return paddr;
-        }
+        paging_mark_entry_unavailable(bm, (size_t)start, page_count);
+        uintptr_t paddr = bm->region_base
+                        + (bm->header_pages + (size_t)start) * PAGE_SIZE;
+        return (paddr_t)paddr;
     }
 
-    return status_print_error(OUT_OF_MEMORY);
+    return (paddr_t)status_print_error(OUT_OF_MEMORY);
+}
+
+size_t pmm_available_pages(void) {
+    size_t total = 0;
+    for (bitmap_entry_t *e = bitmap_head; e != NULL; e = e->next_entry)
+        total += e->available_pages;
+    return total;
 }
 
 void pmm_free_pages(paddr_t paddr, size_t page_count) {
-    struct limine_hhdm_response* hhdm = hhdm_request.response;
+    for (bitmap_entry_t *bm = bitmap_head; bm != NULL; bm = bm->next_entry) {
+        uintptr_t usable_start = bm->region_base + bm->header_pages * PAGE_SIZE;
+        uintptr_t usable_end   = usable_start + bm->capacity * PAGE_SIZE;
 
-    for (bitmap_entry_t* entry = bitmap_head; entry != NULL; entry = entry->next_entry) {
-        uintptr_t entry_start = (uintptr_t)entry - hhdm->offset;
-        uintptr_t entry_end = entry_start + (entry->capacity * PAGE_SIZE);
+        if ((uintptr_t)paddr < usable_start || (uintptr_t)paddr >= usable_end)
+            continue;
 
-        if (paddr >= entry_start && paddr < entry_end) {
-            size_t start = (paddr - entry_start) / PAGE_SIZE;
-            paging_mark_entry_available(entry, start, page_count);
-            if (start < entry->search_cursor)
-                entry->search_cursor = start;
-            return;
-        }
+        size_t idx = ((uintptr_t)paddr - usable_start) / PAGE_SIZE;
+
+        if (idx + page_count > bm->capacity)
+            page_count = bm->capacity - idx;
+
+        paging_mark_entry_available(bm, idx, page_count);
+
+        if (idx < bm->search_cursor)
+            bm->search_cursor = idx;
+        return;
     }
+
+    serial_printf(LOG_WARN "PMM: pmm_free_pages called with unknown paddr 0x%lx\n",
+                  (unsigned long)paddr);
 }

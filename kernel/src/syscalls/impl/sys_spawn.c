@@ -103,7 +103,7 @@ uint64_t sys_spawn(uint64_t user_path_ptr, uint64_t user_argv_ptr, uint64_t user
 cleanup:
     for (int i = 0; i < EXEC_MAX_ARGS; i++) {
         if (argv_owned[i])
-            kfree(argv_owned[i], EXEC_MAX_ARG_LEN);
+            kfree(argv_owned[i]);
     }
     return child ? child->id : err;
 }

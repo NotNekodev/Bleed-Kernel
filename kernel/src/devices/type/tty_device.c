@@ -718,7 +718,7 @@ void tty_device_init(INode_t *tty_inode) {
 
     fd_table_t *boot_fds = vfs_get_kernel_table();
     if (!boot_fds) {
-        kfree(f0, sizeof(*f0));
+        kfree(f0);
         return;
     }
 

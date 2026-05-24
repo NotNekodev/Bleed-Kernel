@@ -31,14 +31,14 @@ uint64_t sys_write(uint64_t fd, uint64_t user_buf, uint64_t len) {
         return (uint64_t)-ENOMEM;
 
     if (copy_from_user(caller, kbuf, (const void *)user_buf, len) != 0) {
-        kfree(kbuf, len);
+        kfree(kbuf);
         return (uint64_t)-EFAULT;
     }
     long written = inode_write(f->inode, kbuf, len, f->offset);
     if (written > 0)
         f->offset += written;
 
-    kfree(kbuf, len);
+    kfree(kbuf);
     if (written < 0)
         return (uint64_t)-EIO;
     return written;

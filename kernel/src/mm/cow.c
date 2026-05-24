@@ -2,6 +2,7 @@
 #include <mm/kalloc.h>
 #include <mm/spinlock.h>
 #include <string.h>
+#include <mm/paging.h>
 
 static uint32_t *cow_refs;
 static size_t cow_ref_count;
@@ -42,7 +43,7 @@ void cow_init(void) {
     irq_restore(flags);
 
     if (table)
-        kfree(table, bytes);
+        kfree(table);
 }
 
 void cow_ref_page(paddr_t phys) {

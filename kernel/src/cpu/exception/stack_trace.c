@@ -39,7 +39,7 @@ int stack_trace_load_symbols(const char *path){
 
     if (inode_read(file, buf, sz, 0) != (long)sz) {
         vfs_drop(file);
-        kfree(buf, sz);
+        kfree(buf);
         return -1;
     }
     vfs_drop(file);
@@ -49,18 +49,18 @@ int stack_trace_load_symbols(const char *path){
     p += sizeof(size_t);
 
     if (kernel_symbols.count > (sz / sizeof(struct ksym))) {
-        kfree(buf, sz);
+        kfree(buf);
         return -1;
     }
 
     size_t syms_bytes = sizeof(struct ksym) * kernel_symbols.count;
     if (sizeof(size_t) + syms_bytes > sz) {
-        kfree(buf, sz);
+        kfree(buf);
         return -1;
     }
 
     if (kernel_symbols_blob && kernel_symbols_blob_size)
-        kfree(kernel_symbols_blob, kernel_symbols_blob_size);
+        kfree(kernel_symbols_blob);
 
     kernel_symbols.syms = (struct ksym *)p;
     p += syms_bytes;

@@ -290,7 +290,7 @@ static void ide_register_drive(int drive_idx, ide_drive_t *drive) {
     blk->sector_count = drive->sector_count;
 
     INode_t *inode = kmalloc(sizeof(INode_t));
-    if (!inode) { kfree(blk, sizeof(*blk)); return; }
+    if (!inode) { kfree(blk); return; }
     memset(inode, 0, sizeof(*inode));
     inode->type          = INODE_DEVICE;
     inode->ops           = &blk_inode_ops;
@@ -301,8 +301,8 @@ static void ide_register_drive(int drive_idx, ide_drive_t *drive) {
 
     if (device_register(inode, dev_name) < 0) {
         serial_printf(LOG_WARN "ide: failed to register /dev/%s\n", dev_name);
-        kfree(inode, sizeof(*inode));
-        kfree(blk, sizeof(*blk));
+        kfree(inode);
+        kfree(blk);
         return;
     }
     serial_printf(LOG_OK "ide: registered /dev/%s (%s, %u sectors)\n",
@@ -323,7 +323,7 @@ static void ide_register_part_cb(void *drive_obj, int drive_idx, int part_idx, u
     pblk->sector_count = (uint32_t)count;
 
     INode_t *pinode = kmalloc(sizeof(INode_t));
-    if (!pinode) { kfree(pblk, sizeof(*pblk)); return; }
+    if (!pinode) { kfree(pblk); return; }
     memset(pinode, 0, sizeof(*pinode));
     pinode->type          = INODE_DEVICE;
     pinode->ops           = &blk_inode_ops;
@@ -333,8 +333,8 @@ static void ide_register_part_cb(void *drive_obj, int drive_idx, int part_idx, u
 
     if (device_register(pinode, part_name) < 0) {
         serial_printf(LOG_WARN "ide: failed to register /dev/%s\n", part_name);
-        kfree(pinode, sizeof(*pinode));
-        kfree(pblk, sizeof(*pblk));
+        kfree(pinode);
+        kfree(pblk);
         return;
     }
     serial_printf(LOG_OK "ide: registered /dev/%s (lba=%u sectors=%u type=0x%x)\n",

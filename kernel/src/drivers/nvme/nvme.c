@@ -396,7 +396,7 @@ static long nvme_blk_read(INode_t *inode, void *buf, size_t count, size_t offset
 
     while (total < count) {
         if (nvme_read_sectors(blk->drive, abs_lba, 1, tmp) < 0) {
-            kfree(tmp, ss);
+            kfree(tmp);
             return total > 0 ? (long)total : -1;
         }
         size_t src_off = (total == 0) ? skip : 0;
@@ -408,7 +408,7 @@ static long nvme_blk_read(INode_t *inode, void *buf, size_t count, size_t offset
         abs_lba++;
     }
 
-    kfree(tmp, ss);
+    kfree(tmp);
     return (long)total;
 }
 
@@ -437,20 +437,20 @@ static long nvme_blk_write(INode_t *inode, const void *buf, size_t count, size_t
         // RMW if we're not writing a full sector
         if (dst_off != 0 || chunk < ss) {
             if (nvme_read_sectors(blk->drive, abs_lba, 1, tmp) < 0) {
-                kfree(tmp, ss);
+                kfree(tmp);
                 return total > 0 ? (long)total : -1;
             }
         }
         memcpy(tmp + dst_off, (const uint8_t *)buf + total, chunk);
         if (nvme_write_sectors(blk->drive, abs_lba, 1, tmp) < 0) {
-            kfree(tmp, ss);
+            kfree(tmp);
             return total > 0 ? (long)total : -1;
         }
         total += chunk;
         abs_lba++;
     }
 
-    kfree(tmp, ss);
+    kfree(tmp);
     return (long)total;
 }
 
@@ -480,7 +480,7 @@ static void nvme_register_drive(int drive_idx, nvme_drive_t *drive) {
     blk->sector_count = drive->sector_count;
 
     INode_t *inode = kmalloc(sizeof(*inode));
-    if (!inode) { kfree(blk, sizeof(*blk)); return; }
+    if (!inode) { kfree(blk); return; }
     memset(inode, 0, sizeof(*inode));
     inode->type          = INODE_DEVICE;
     inode->ops           = &nvme_blk_ops;
@@ -490,8 +490,8 @@ static void nvme_register_drive(int drive_idx, nvme_drive_t *drive) {
 
     if (device_register(inode, dev_name) < 0) {
         serial_printf(LOG_WARN "nvme: failed to register /dev/%s\n", dev_name);
-        kfree(inode, sizeof(*inode));
-        kfree(blk, sizeof(*blk));
+        kfree(inode);
+        kfree(blk);
         return;
     }
     serial_printf(LOG_OK "nvme: /dev/%s - %s (%llu sectors, %u bytes/sector)\n",
@@ -512,7 +512,7 @@ static void nvme_register_part_cb(void *drive_obj, int drive_idx, int part_idx,
     pblk->sector_count = count;
 
     INode_t *pinode = kmalloc(sizeof(*pinode));
-    if (!pinode) { kfree(pblk, sizeof(*pblk)); return; }
+    if (!pinode) { kfree(pblk); return; }
     memset(pinode, 0, sizeof(*pinode));
     pinode->type          = INODE_DEVICE;
     pinode->ops           = &nvme_blk_ops;
@@ -522,8 +522,8 @@ static void nvme_register_part_cb(void *drive_obj, int drive_idx, int part_idx,
 
     if (device_register(pinode, part_name) < 0) {
         serial_printf(LOG_WARN "nvme: failed to register /dev/%s\n", part_name);
-        kfree(pinode, sizeof(*pinode));
-        kfree(pblk, sizeof(*pblk));
+        kfree(pinode);
+        kfree(pblk);
         return;
     }
     serial_printf(LOG_OK "nvme: registered /dev/%s (lba=%llu sectors=%llu type=0x%02x)\n",

@@ -9,8 +9,44 @@
 #include <mm/cow.h>
 
 #define VMM_BASE_FLAGS (PTE_WRITABLE | PTE_NX)
+#define VMM_NODES_PER_SLAB  (PAGE_SIZE / sizeof(vmm_region_t))
 
+// dont get confused this is in the linker file
 extern char __kernel_end;
+extern paddr_t kernel_page_map;
+
+static vmm_region_t *vmm_node_freelist = NULL;
+
+static int vmm_slab_refill(void) {
+    paddr_t slab_phys = pmm_alloc_pages(1);
+    if (!slab_phys)
+        return -1;
+
+    vmm_region_t *slab = (vmm_region_t *)paddr_to_vaddr(slab_phys);
+    memset(slab, 0, PAGE_SIZE);
+
+    for (size_t i = 0; i < VMM_NODES_PER_SLAB; i++) {
+        slab[i].next = vmm_node_freelist;
+        vmm_node_freelist = &slab[i];
+    }
+    return 0;
+}
+
+static vmm_region_t *vmm_node_alloc(void) {
+    if (!vmm_node_freelist) {
+        if (vmm_slab_refill() != 0)
+            return NULL;
+    }
+    vmm_region_t *n = vmm_node_freelist;
+    vmm_node_freelist = n->next;
+    memset(n, 0, sizeof(*n));
+    return n;
+}
+
+static void vmm_node_free(vmm_region_t *n) {
+    n->next = vmm_node_freelist;
+    vmm_node_freelist = n;
+}
 
 static spinlock_t   vmm_lock;
 static int          vmm_lock_init_done = 0;
@@ -20,27 +56,19 @@ static uintptr_t    vmm_base_hint = 0;
 static inline void vmm_init(void) {
     if (vmm_lock_init_done)
         return;
- 
     spinlock_init(&vmm_lock);
-    vmm_base_hint = PAGE_ALIGN_UP((uintptr_t)&__kernel_end + (16 * PAGE_SIZE));
+
+    vmm_base_hint = PAGE_ALIGN_UP((uintptr_t)&__kernel_end + 64 * PAGE_SIZE);
     vmm_lock_init_done = 1;
 }
 
-/// @brief are two pages overlapping?
-/// @param a target
-/// @param apages width
-/// @param b target
-/// @param bpages width
-/// @return success
-static inline int vmm_overlap(uintptr_t a, uintptr_t apages, uintptr_t b, uintptr_t bpages) {
+static inline int vmm_overlap(uintptr_t a, size_t apages,
+                               uintptr_t b, size_t bpages) {
     uintptr_t a_end = a + apages * PAGE_SIZE;
     uintptr_t b_end = b + bpages * PAGE_SIZE;
     return (a < b_end) && (b < a_end);
 }
 
-/// @brief reserve a range of contiguous memory, assumes the caller has the locks
-/// @param pages size
-/// @return pointer
 static uintptr_t vmm_reserve_range_locked(size_t pages) {
     if (!pages)
         return 0;
@@ -62,39 +90,37 @@ static uintptr_t vmm_reserve_range_locked(size_t pages) {
             break;
     }
 
-    vmm_region_t *node = (vmm_region_t *)paddr_to_vaddr(pmm_alloc_pages(1)); // just 4KiB nodes
+    vmm_region_t *node = vmm_node_alloc();
     if (!node)
         return 0;
-    memset(node, 0, sizeof(*node));
-    node->base = candidate;
-    node->pages = pages;
 
+    node->base  = candidate;
+    node->pages = pages;
     if (!vmm_regions || candidate < vmm_regions->base) {
-        node->next = vmm_regions;
+        node->next  = vmm_regions;
         vmm_regions = node;
     } else {
         vmm_region_t *prev = vmm_regions;
         while (prev->next && prev->next->base < candidate)
             prev = prev->next;
-        node->next = prev->next;
-        prev->next = node;
+        node->next  = prev->next;
+        prev->next  = node;
     }
 
-    vmm_base_hint = PAGE_ALIGN_UP(candidate + pages * PAGE_SIZE);
+    uintptr_t next_hint = PAGE_ALIGN_UP(candidate + pages * PAGE_SIZE);
+    if (next_hint > vmm_base_hint)
+        vmm_base_hint = next_hint;
+
     return candidate;
 }
 
-/// @brief frees vmm pages in the range assuming the caller has locks
-/// @param base 
-/// @param pages 
-/// @return 
 static int vmm_release_range_locked(uintptr_t base, size_t pages) {
     vmm_region_t *prev = NULL;
     for (vmm_region_t *r = vmm_regions; r; r = r->next) {
         if (r->base == base && r->pages == pages) {
             if (prev) prev->next = r->next;
-            else vmm_regions = r->next;
-            pmm_free_pages(vaddr_to_paddr(r), 1);
+            else      vmm_regions = r->next;
+            vmm_node_free(r);
             return 0;
         }
         prev = r;
@@ -102,11 +128,6 @@ static int vmm_release_range_locked(uintptr_t base, size_t pages) {
     return -1;
 }
 
-/// @brief gets the physical address of a page
-/// @param cr3 address space
-/// @param vaddr page vaddr
-/// @param out out buffer
-/// @return success
 static int vmm_page_paddr(vmm_cr3_t cr3, uintptr_t vaddr, paddr_t *out) {
     uint64_t *pte = paging_get_page(cr3, vaddr, 0);
     if (!pte || !(*pte & PTE_PRESENT))
@@ -116,39 +137,27 @@ static int vmm_page_paddr(vmm_cr3_t cr3, uintptr_t vaddr, paddr_t *out) {
     return 0;
 }
 
-/// @brief maps phsyical pages of size page count at virt
-/// @param cr3 address space
-/// @param virt virtual address
-/// @param phys_start phsyical address start
-/// @param page_count contigious size
-/// @param flags PTE flags
-/// @return success
-int vmm_map_phys_pages(vmm_cr3_t cr3, void *virt, paddr_t phys_start, size_t page_count, uint64_t flags) {
+int vmm_map_phys_pages(vmm_cr3_t cr3, void *virt, paddr_t phys_start,
+                       size_t page_count, uint64_t flags) {
     if (!virt || !page_count)
         return -1;
 
     uintptr_t va = PAGE_ALIGN_DOWN((uintptr_t)virt);
-    paddr_t pa = phys_start & PADDR_ENTRY_MASK;
-    uint64_t map_flags = flags & ~PTE_PRESENT;
+    paddr_t   pa = phys_start & PADDR_ENTRY_MASK;
+    uint64_t  mf = flags & ~PTE_PRESENT;
 
-    for (size_t i = 0; i < page_count; i++) {
-        paging_map_page_invl(cr3, pa + (i * PAGE_SIZE), va + (i * PAGE_SIZE), map_flags, 0);
-    }
+    for (size_t i = 0; i < page_count; i++)
+        paging_map_page_invl(cr3, pa + i * PAGE_SIZE,
+                             va + i * PAGE_SIZE, mf, 0);
     return 0;
 }
 
-/// @brief maps page_count virtual pages
-/// @param cr3 address space
-/// @param virt virtual target
-/// @param page_count size
-/// @param flags PTE Flags
-/// @return success
-int vmm_map_pages(vmm_cr3_t cr3, void* virt, size_t page_count, uint64_t flags) {
+int vmm_map_pages(vmm_cr3_t cr3, void *virt, size_t page_count, uint64_t flags) {
     if (!virt || !page_count)
         return -1;
 
     uintptr_t va = PAGE_ALIGN_DOWN((uintptr_t)virt);
-    uint64_t map_flags = flags & ~PTE_PRESENT;
+    uint64_t  mf = flags & ~PTE_PRESENT;
 
     for (size_t i = 0; i < page_count; i++) {
         paddr_t phys = pmm_alloc_pages(1);
@@ -156,30 +165,20 @@ int vmm_map_pages(vmm_cr3_t cr3, void* virt, size_t page_count, uint64_t flags) 
             vmm_unmap_free_pages(cr3, (void *)va, i);
             return -1;
         }
-        paging_map_page_invl(cr3, phys, va + i * PAGE_SIZE, map_flags, 0);
+        paging_map_page_invl(cr3, phys, va + i * PAGE_SIZE, mf, 0);
     }
     return 0;
 }
 
-/// @brief unmaps virtual pages
-/// @param cr3 address space
-/// @param virt target
-/// @param page_count size
-void vmm_unmap_pages(vmm_cr3_t cr3, void* virt, size_t page_count) {
+void vmm_unmap_pages(vmm_cr3_t cr3, void *virt, size_t page_count) {
     if (!virt || !page_count)
         return;
 
     uintptr_t va = PAGE_ALIGN_DOWN((uintptr_t)virt);
-    for (size_t i = 0; i < page_count; i++) {
+    for (size_t i = 0; i < page_count; i++)
         paging_unmap_page(cr3, va + i * PAGE_SIZE);
-    }
 }
 
-/// @brief unmaps virtual pages and frees them in the PMM
-/// @param cr3 address space
-/// @param virt target address
-/// @param page_count size
-/// @return success
 int vmm_unmap_free_pages(vmm_cr3_t cr3, void *virt, size_t page_count) {
     if (!virt || !page_count)
         return -1;
@@ -187,7 +186,8 @@ int vmm_unmap_free_pages(vmm_cr3_t cr3, void *virt, size_t page_count) {
     uintptr_t va = PAGE_ALIGN_DOWN((uintptr_t)virt);
     for (size_t i = 0; i < page_count; i++) {
         uintptr_t vpage = va + i * PAGE_SIZE;
-        paddr_t ppage = 0;
+        paddr_t   ppage = 0;
+
         if (vmm_page_paddr(cr3, vpage, &ppage) == 0) {
             uint64_t *pte = paging_get_page(cr3, vpage, 0);
             if (pte && (*pte & PTE_COW)) {
@@ -202,53 +202,40 @@ int vmm_unmap_free_pages(vmm_cr3_t cr3, void *virt, size_t page_count) {
     return 0;
 }
 
-/// @brief update protection flags for a given virtual address
-/// @param cr3 address space
-/// @param virt virtual address
-/// @param page_count size
-/// @param flags new set flags
-/// @return success
 int vmm_protect_pages(vmm_cr3_t cr3, void *virt, size_t page_count, uint64_t flags) {
     if (!virt || !page_count)
         return -1;
 
-    uintptr_t va = PAGE_ALIGN_DOWN((uintptr_t)virt);
-    uint64_t keep_mask = PADDR_ENTRY_MASK | PTE_PRESENT | PTE_ACCESSED | PTE_DIRTY | PTE_GLOBAL;
-    uint64_t set_flags = flags & ~(PTE_PRESENT | PADDR_ENTRY_MASK);
+    uintptr_t va        = PAGE_ALIGN_DOWN((uintptr_t)virt);
+    uint64_t  keep_mask = PADDR_ENTRY_MASK | PTE_PRESENT | PTE_ACCESSED
+                        | PTE_DIRTY | PTE_GLOBAL;
+    uint64_t  set_flags = flags & ~(PTE_PRESENT | PADDR_ENTRY_MASK);
 
     for (size_t i = 0; i < page_count; i++) {
         uint64_t *pte = paging_get_page(cr3, va + i * PAGE_SIZE, 0);
         if (!pte || !(*pte & PTE_PRESENT))
             return -1;
-        uint64_t base = *pte & keep_mask;
-        *pte = base | set_flags;
+        *pte = (*pte & keep_mask) | set_flags;
         asm volatile("invlpg (%0)" :: "r"(va + i * PAGE_SIZE) : "memory");
     }
     return 0;
 }
 
-/// @brief translates a virtual address to a physical address, thin wrapper for vmm_page_paddr
-/// @param cr3 address space
-/// @param virt target
-/// @param out_paddr result pointer
-/// @return success
 int vmm_translate(vmm_cr3_t cr3, void *virt, paddr_t *out_paddr) {
     if (!virt || !out_paddr)
         return -1;
     return vmm_page_paddr(cr3, (uintptr_t)virt, out_paddr);
 }
 
-/// @brief allocates pages in the VMM
-/// @param pages size
-/// @return pointer to base of page allocation
-void* vmm_alloc_pages(size_t pages) {
+void *vmm_alloc_pages(size_t pages) {
     if (!pages)
         return NULL;
 
     vmm_init();
+
     unsigned long irq = irq_push();
     spinlock_acquire(&vmm_lock);
-        uintptr_t base = vmm_reserve_range_locked(pages);
+    uintptr_t base = vmm_reserve_range_locked(pages);
     spinlock_release(&vmm_lock);
     irq_restore(irq);
 
@@ -258,7 +245,7 @@ void* vmm_alloc_pages(size_t pages) {
     if (vmm_map_pages(kernel_page_map, (void *)base, pages, VMM_BASE_FLAGS) != 0) {
         irq = irq_push();
         spinlock_acquire(&vmm_lock);
-            (void)vmm_release_range_locked(base, pages);
+        (void)vmm_release_range_locked(base, pages);
         spinlock_release(&vmm_lock);
         irq_restore(irq);
         return NULL;
@@ -268,19 +255,17 @@ void* vmm_alloc_pages(size_t pages) {
     return (void *)base;
 }
 
-/// @brief frees Virtual Pages
-/// @param addr base address
-/// @param pages size to free
-void vmm_free_pages(void* addr, size_t pages) {
+void vmm_free_pages(void *addr, size_t pages) {
     if (!addr || !pages)
         return;
 
     uintptr_t base = PAGE_ALIGN_DOWN((uintptr_t)addr);
 
     vmm_init();
+
     unsigned long irq = irq_push();
     spinlock_acquire(&vmm_lock);
-        int rel = vmm_release_range_locked(base, pages);
+    int rel = vmm_release_range_locked(base, pages);
     spinlock_release(&vmm_lock);
     irq_restore(irq);
 

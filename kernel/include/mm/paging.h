@@ -25,6 +25,7 @@
 #define PAGE_FB_WC          (PTE_WRITABLE | PTE_PCD | PTE_PAT | PTE_PAGESIZE)
 
 #define PAGE_SIZE_4K       4096
+#define PAGE_SIZE          4096
 #define PAGE_SIZE_2M       (512 * PAGE_SIZE_4K)
 #define PADDR_ENTRY_MASK   0x000FFFFFFFFFF000ULL
 

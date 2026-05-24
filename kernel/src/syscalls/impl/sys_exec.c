@@ -13,7 +13,7 @@
 static void free_user_alloc_nodes(user_alloc_t *alloc) {
     while (alloc) {
         user_alloc_t *next = alloc->next;
-        kfree(alloc, sizeof(user_alloc_t));
+        kfree(alloc);
         alloc = next;
     }
 }
@@ -85,7 +85,7 @@ long sys_exec(uint64_t user_path_ptr, uint64_t user_argv_ptr, uint64_t user_argc
             if (!argv_owned[i]) {
                 for (size_t j = 0; j < EXEC_MAX_ARGS; j++) {
                     if (argv_owned[j])
-                        kfree(argv_owned[j], EXEC_MAX_ARG_LEN);
+                        kfree(argv_owned[j]);
                 }
                 return -ENOMEM;
             }
@@ -96,7 +96,7 @@ long sys_exec(uint64_t user_path_ptr, uint64_t user_argv_ptr, uint64_t user_argc
                                  EXEC_MAX_ARG_LEN) != 0) {
                 for (size_t j = 0; j < EXEC_MAX_ARGS; j++) {
                     if (argv_owned[j])
-                        kfree(argv_owned[j], EXEC_MAX_ARG_LEN);
+                        kfree(argv_owned[j]);
                 }
                 return -EFAULT;
             }
@@ -109,7 +109,7 @@ long sys_exec(uint64_t user_path_ptr, uint64_t user_argv_ptr, uint64_t user_argc
     if (parse_error) {
         for (size_t i = 0; i < EXEC_MAX_ARGS; i++) {
             if (argv_owned[i])
-                kfree(argv_owned[i], EXEC_MAX_ARG_LEN);
+                kfree(argv_owned[i]);
         }
         return -EFAULT;
     }
@@ -186,7 +186,7 @@ long sys_exec(uint64_t user_path_ptr, uint64_t user_argv_ptr, uint64_t user_argc
 
     free_user_alloc_nodes(old_alloc_list);
     if (old_heap)
-        kfree(old_heap, sizeof(user_heap_t));
+        kfree(old_heap);
     paging_destroy_address_space(old_cr3);
 
     serial_printf(LOG_OK "exec success pid=%u path=%s\n",
@@ -201,7 +201,7 @@ rollback_task:
     task->alloc_list = old_alloc_list;
     task->heap = old_heap;
     if (new_heap) {
-        kfree(new_heap, sizeof(user_heap_t));
+        kfree(new_heap);
         new_heap = NULL;
     }
 fail_new_cr3:
@@ -210,10 +210,10 @@ fail_new_cr3:
 done:
     for (size_t i = 0; i < EXEC_MAX_ARGS; i++) {
         if (argv_owned[i])
-            kfree(argv_owned[i], EXEC_MAX_ARG_LEN);
+            kfree(argv_owned[i]);
     }
     if (ret < 0) {
-        serial_printf("[PROC] exec failed pid=%u err=%d path=%s\n",
+        serial_printf(LOG_ERROR "exec failed pid=%u err=%d path=%s\n",
                       (unsigned)task->id,
                       (int)ret,
                       kpath);

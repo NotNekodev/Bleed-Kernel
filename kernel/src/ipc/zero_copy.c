@@ -63,7 +63,7 @@ static int ipc_detach_alloc_range(task_t *task, uintptr_t addr, size_t pages) {
                 prev->next = cur->next;
             else
                 task->alloc_list = cur->next;
-            kfree(cur, sizeof(user_alloc_t));
+            kfree(cur);
             return 0;
         }
 
@@ -164,7 +164,7 @@ long ipc_send_pages(task_t *sender, uint64_t target_pid, uint64_t src_addr, uint
 
     paddr_t *phys_pages = kmalloc((size_t)pages * sizeof(paddr_t));
     if (!phys_pages) {
-        kfree(msg, sizeof(ipc_message_t));
+        kfree(msg);
         return -ENOMEM;
     }
 
@@ -172,8 +172,8 @@ long ipc_send_pages(task_t *sender, uint64_t target_pid, uint64_t src_addr, uint
         uintptr_t src_page = (uintptr_t)src_addr + i * PAGE_SIZE;
         uint64_t *src_pte = paging_get_page(sender->page_map, src_page, 0);
         if (!src_pte || !(*src_pte & PTE_PRESENT)) {
-            kfree(phys_pages, (size_t)pages * sizeof(paddr_t));
-            kfree(msg, sizeof(ipc_message_t));
+            kfree(phys_pages);
+            kfree(msg);
             return -EFAULT;
         }
         phys_pages[i] = (paddr_t)(*src_pte & PADDR_ENTRY_MASK);
@@ -181,8 +181,8 @@ long ipc_send_pages(task_t *sender, uint64_t target_pid, uint64_t src_addr, uint
 
     int detach_rc = ipc_detach_alloc_range(sender, (uintptr_t)src_addr, (size_t)pages);
     if (detach_rc != 0) {
-        kfree(phys_pages, (size_t)pages * sizeof(paddr_t));
-        kfree(msg, sizeof(ipc_message_t));
+        kfree(phys_pages);
+        kfree(msg);
         return detach_rc;
     }
 
@@ -226,8 +226,8 @@ long ipc_recv(task_t *receiver, uint64_t user_msg_ptr) {
     if (!target_addr) {
         for (size_t i = 0; i < (size_t)msg->pages; i++)
             pmm_free_pages(msg->phys_pages[i], 1);
-        kfree(msg->phys_pages, (size_t)msg->pages * sizeof(paddr_t));
-        kfree(msg, sizeof(ipc_message_t));
+        kfree(msg->phys_pages);
+        kfree(msg);
         return -ENOMEM;
     }
 
@@ -245,13 +245,13 @@ long ipc_recv(task_t *receiver, uint64_t user_msg_ptr) {
 
     if (copy_to_user(receiver, (void *)user_msg_ptr, &out, sizeof(out)) != 0) {
         task_munmap(receiver, target_addr);
-        kfree(msg->phys_pages, (size_t)msg->pages * sizeof(paddr_t));
-        kfree(msg, sizeof(ipc_message_t));
+        kfree(msg->phys_pages);
+        kfree(msg);
         return -EFAULT;
     }
 
-    kfree(msg->phys_pages, (size_t)msg->pages * sizeof(paddr_t));
-    kfree(msg, sizeof(ipc_message_t));
+    kfree(msg->phys_pages);
+    kfree(msg);
 
     return 0;
 }
@@ -273,8 +273,8 @@ void ipc_task_cleanup(task_t *task) {
         ipc_message_t *next = msg->next;
         for (size_t i = 0; i < (size_t)msg->pages; i++)
             pmm_free_pages(msg->phys_pages[i], 1);
-        kfree(msg->phys_pages, (size_t)msg->pages * sizeof(paddr_t));
-        kfree(msg, sizeof(ipc_message_t));
+        kfree(msg->phys_pages);
+        kfree(msg);
         msg = next;
     }
 }

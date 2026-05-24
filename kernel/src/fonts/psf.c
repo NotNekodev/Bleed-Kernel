@@ -151,7 +151,7 @@ psf_font_t *psf_load_font(INode_t *inode) {
     uint8_t *buf = kmalloc(size);
     inode_read(inode, buf, size, 0);
     psf_font_t *font = psf_parse_font(buf, size);
-    kfree(buf, size);
+    kfree(buf);
     return font;
 }
 

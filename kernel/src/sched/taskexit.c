@@ -18,7 +18,7 @@ void exit(void) {
 
         (void)vmm_unmap_free_pages(current_task->page_map, alloc->vaddr, alloc->pages);
 
-        kfree(alloc, sizeof(user_alloc_t));
+        kfree(alloc);
         alloc = next;
     }
     current_task->alloc_list = NULL;

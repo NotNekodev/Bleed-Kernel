@@ -227,7 +227,7 @@ static INode_t *fat32_make_inode(fat32_fs_t *fs, const fat32_dirent_t *de,
     fi->dirent_offset  = dirent_off;
 
     INode_t *inode = kmalloc(sizeof(*inode));
-    if (!inode) { kfree(fi, sizeof(*fi)); return NULL; }
+    if (!inode) { kfree(fi); return NULL; }
 
     memset(inode, 0, sizeof(*inode));
     inode->type          = is_dir ? INODE_DIRECTORY : INODE_FILE;
@@ -472,7 +472,7 @@ static size_t fat32_size(INode_t *inode) {
 
 static void fat32_drop(INode_t *inode) {
     if (!inode || !inode->internal_data) return;
-    kfree(inode->internal_data, sizeof(fat32_inode_t));
+    kfree(inode->internal_data);
     inode->internal_data = NULL;
 }
 
@@ -588,7 +588,7 @@ static int fat32_create(INode_t *parent, const char *name, size_t namelen,
     fi->dirent_offset  = slot_off;
 
     INode_t *inode = kmalloc(sizeof(*inode));
-    if (!inode) { kfree(fi, sizeof(*fi)); return status_print_error(OUT_OF_MEMORY); }
+    if (!inode) { kfree(fi); return status_print_error(OUT_OF_MEMORY); }
     memset(inode, 0, sizeof(*inode));
     inode->type          = (node_type == INODE_DIRECTORY) ? INODE_DIRECTORY : INODE_FILE;
     inode->ops           = (node_type == INODE_DIRECTORY) ? &fat32_dir_ops : &fat32_file_ops;
@@ -753,7 +753,7 @@ int fat32_mount(INode_t *dev_inode, INode_t **root) {
     if (total_sectors <= fs->data_start_lba) {
         serial_printf(LOG_ERROR "fat32: data_start_lba (%u) >= total_sectors (%u)\n",
                       fs->data_start_lba, total_sectors);
-        kfree(fs, sizeof(*fs));
+        kfree(fs);
         return -1;
     }
     uint32_t data_sectors = total_sectors - fs->data_start_lba;
@@ -772,7 +772,7 @@ int fat32_mount(INode_t *dev_inode, INode_t **root) {
 
     INode_t *root_inode = fat32_make_inode(fs, &root_de, 0, 0, NULL);
     if (!root_inode) {
-        kfree(fs, sizeof(*fs));
+        kfree(fs);
         return -1;
     }
 

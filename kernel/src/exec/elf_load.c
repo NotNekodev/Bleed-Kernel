@@ -154,11 +154,11 @@ int elf_load(INode_t *elf_file, paddr_t cr3, uintptr_t* entry){
                    copy_size);
         }
 
-        kfree(load_buffer, segment_bytes);
+        kfree(load_buffer);
         continue;
 
 out_buf:
-        kfree(load_buffer, segment_bytes);
+        kfree(load_buffer);
         goto out_phdr;
     }
 
@@ -166,7 +166,7 @@ out_buf:
     r = 0;
 
 out_phdr:
-    kfree(phdr, phdr_size);
+    kfree(phdr);
     return r;
 }
 

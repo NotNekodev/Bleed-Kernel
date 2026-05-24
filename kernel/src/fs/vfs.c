@@ -83,14 +83,14 @@ void vfs_fd_table_drop(fd_table_t *table) {
             else if (f->inode) {
                 vfs_drop(f->inode);
             }
-            kfree(f, sizeof(*f));
+            kfree(f);
         }
     }
 
     if (table == boot_fd_table)
         boot_fd_table = NULL;
 
-    kfree(table, sizeof(*table));
+    kfree(table);
 }
 
 INode_t* vfs_get_root(){
@@ -134,7 +134,7 @@ void vfs_drop(INode_t* inode){
     inode->shared--;
     if (inode->shared == 0) {
         inode_drop(inode);
-        kfree(inode, sizeof(*inode));
+        kfree(inode);
     }
 }
 
@@ -441,7 +441,7 @@ int vfs_open(const char *path_str, int flags){
                     }
                 }
 
-                kfree(f, sizeof(*f));
+                kfree(f);
                 return status_print_error(OUT_OF_BOUNDS);
             }
         }
@@ -469,7 +469,7 @@ int vfs_open(const char *path_str, int flags){
     if ((flags & O_TRUNC) && inode->type == INODE_FILE) {
         int tr = inode_truncate(inode, 0);
         if (tr < 0) {
-            kfree(f, sizeof(*f));
+            kfree(f);
             vfs_drop(inode);
             return tr;
         }
@@ -488,7 +488,7 @@ int vfs_open(const char *path_str, int flags){
         }
     }
 
-    kfree(f, sizeof(*f));
+    kfree(f);
     vfs_drop(inode);
     return status_print_error(OUT_OF_BOUNDS);
 }
@@ -767,7 +767,7 @@ int vfs_close(int fd){
         } else {
             vfs_drop(f->inode);
         }
-        kfree(f, sizeof(*f));
+        kfree(f);
     }
 
     return 0;

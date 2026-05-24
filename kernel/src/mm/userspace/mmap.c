@@ -81,7 +81,7 @@ void task_munmap(task_t* task, void* addr) {
             if (prev) prev->next = a->next;
             else task->alloc_list = a->next;
 
-            kfree(a, sizeof(user_alloc_t));
+            kfree(a);
             return;
         }
         prev = a;

@@ -412,7 +412,7 @@ static void ahci_register_drive(int drive_idx, ahci_drive_t *drive) {
     blk->sector_count = drive->sector_count;
 
     INode_t *inode = kmalloc(sizeof(*inode));
-    if (!inode) { kfree(blk, sizeof(*blk)); return; }
+    if (!inode) { kfree(blk); return; }
     memset(inode, 0, sizeof(*inode));
     inode->type          = INODE_DEVICE;
     inode->ops           = &ahci_blk_ops;
@@ -422,8 +422,8 @@ static void ahci_register_drive(int drive_idx, ahci_drive_t *drive) {
 
     if (device_register(inode, dev_name) < 0) {
         serial_printf(LOG_WARN "ahci: failed to register /dev/%s\n", dev_name);
-        kfree(inode, sizeof(*inode));
-        kfree(blk, sizeof(*blk));
+        kfree(inode);
+        kfree(blk);
         return;
     }
     serial_printf(LOG_OK "ahci: /dev/%s - %s (%llu sectors)\n",
@@ -444,7 +444,7 @@ static void ahci_register_part_cb(void *drive_obj, int drive_idx, int part_idx, 
     pblk->sector_count = count;
 
     INode_t *pinode = kmalloc(sizeof(*pinode));
-    if (!pinode) { kfree(pblk, sizeof(*pblk)); return; }
+    if (!pinode) { kfree(pblk); return; }
     memset(pinode, 0, sizeof(*pinode));
     pinode->type          = INODE_DEVICE;
     pinode->ops           = &ahci_blk_ops;
@@ -454,8 +454,8 @@ static void ahci_register_part_cb(void *drive_obj, int drive_idx, int part_idx, 
 
     if (device_register(pinode, part_name) < 0) {
         serial_printf(LOG_WARN "ahci: failed to register /dev/%s\n", part_name);
-        kfree(pinode, sizeof(*pinode));
-        kfree(pblk, sizeof(*pblk));
+        kfree(pinode);
+        kfree(pblk);
         return;
     }
     serial_printf(LOG_OK "ahci: registered /dev/%s (lba=%llu sectors=%llu type=0x%02x)\n",

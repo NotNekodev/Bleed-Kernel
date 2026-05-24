@@ -163,11 +163,11 @@ int pipe_create_file_pair(file_t **out_read, file_t **out_write) {
     file_t *write_file = (file_t *)kmalloc(sizeof(file_t));
 
     if (!read_inode || !write_inode || !read_file || !write_file) {
-        if (read_inode) kfree(read_inode, sizeof(INode_t));
-        if (write_inode) kfree(write_inode, sizeof(INode_t));
-        if (read_file) kfree(read_file, sizeof(file_t));
-        if (write_file) kfree(write_file, sizeof(file_t));
-        kfree(state, sizeof(pipe_state_t));
+        if (read_inode) kfree(read_inode);
+        if (write_inode) kfree(write_inode);
+        if (read_file) kfree(read_file);
+        if (write_file) kfree(write_file);
+        kfree(state);
         return -ENOMEM;
     }
 
@@ -209,7 +209,7 @@ void pipe_file_release(file_t *f) {
 
     pipe_state_t *state = (pipe_state_t *)f->inode->internal_data;
     if (!state) {
-        kfree(f->inode, sizeof(INode_t));
+        kfree(f->inode);
         return;
     }
 
@@ -226,7 +226,7 @@ void pipe_file_release(file_t *f) {
     spinlock_release(&state->lock);
     irq_restore(flags);
 
-    kfree(f->inode, sizeof(INode_t));
+    kfree(f->inode);
     if (free_state)
-        kfree(state, sizeof(pipe_state_t));
+        kfree(state);
 }

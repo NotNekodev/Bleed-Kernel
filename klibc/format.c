@@ -41,12 +41,12 @@ char* itoa_signed(int64_t value) {
     while (tmp[len - 1] != '\0') len++;
 
     char* out = kmalloc(len + 1);
-    if (!out) { kfree(tmp, len + 1); return NULL; }
+    if (!out) { kfree(tmp); return NULL; }
 
     out[0] = '-';
     for (size_t i = 0; i < len; i++)
         out[i + 1] = tmp[i];
 
-    kfree(tmp, len + 1);
+    kfree(tmp);
     return out;
 }

@@ -31,5 +31,5 @@ void display_splash_screen(const char* image_path, uint32_t img_width, uint32_t 
 
     draw_bgra_image(start_x, start_y, img_width, img_height, image_buffer);
 
-    kfree(image_buffer, image_size);
+    kfree(image_buffer);
 }

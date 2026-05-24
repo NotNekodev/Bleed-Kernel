@@ -69,6 +69,12 @@ static uint64_t paging_write_table_entry(uint64_t* table, size_t index, uint64_t
 void paging_walk_page_tables(paddr_t cr3, uint64_t vaddr,
                              uint64_t **out_pd, size_t *out_pd_index,
                              uint64_t flags) {
+    if ((cr3 & PADDR_ENTRY_MASK) == 0) {
+        *out_pd = NULL;
+        *out_pd_index = 0;
+        return;
+    }
+
     uint64_t *pml4 = paddr_to_vaddr(cr3 & PADDR_ENTRY_MASK);
     if (!pml4) {
         *out_pd = NULL;
@@ -232,6 +238,8 @@ void paging_destroy_address_space(paddr_t cr3){
 }
 
 uint64_t* paging_get_page(paddr_t cr3, uint64_t vaddr, int create) {
+    if ((cr3 & PADDR_ENTRY_MASK) == 0) return NULL;
+
     uint64_t *pml4 = (uint64_t*)paddr_to_vaddr(cr3 & PADDR_ENTRY_MASK);
     if (!pml4) return NULL;
 
