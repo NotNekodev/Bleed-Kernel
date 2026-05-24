@@ -123,27 +123,30 @@ static bool ahci_port_init(ahci_drive_t *drive) {
 
     ahci_port_stop(abar, port);
 
-    drive->cmd_list  = kmalloc(sizeof(ahci_cmd_header_t) * 32);
-    drive->fis_buf   = kmalloc(256);
-    drive->cmd_table = kmalloc(sizeof(ahci_cmd_table_t));
-
-    if (!drive->cmd_list || !drive->fis_buf || !drive->cmd_table) {
+paddr_t dma_phys = pmm_alloc_pages(1);
+    if (!dma_phys) {
         serial_printf(LOG_ERROR "ahci: OOM during port %u init\n", port);
         return false;
     }
 
-    memset(drive->cmd_list,  0, sizeof(ahci_cmd_header_t) * 32);
-    memset(drive->fis_buf,   0, 256);
-    memset(drive->cmd_table, 0, sizeof(ahci_cmd_table_t));
+    uint8_t *dma_virt = (uint8_t *)(uintptr_t)MMIO(dma_phys);
+    memset(dma_virt, 0, PAGE_SIZE_4K);
 
-    // point the command header -> 0
-    uint64_t ct_phys = PHYS(drive->cmd_table);
+    // the alignments are here for the betterment of the world
+    // Command List must be 1K aligned
+    drive->cmd_list  = (void *)(dma_virt + 0);
+    // FIS is 256-byte aligned
+    drive->fis_buf   = (void *)(dma_virt + 1024);
+    // Command Table is 128-byte aligned
+    drive->cmd_table = (void *)(dma_virt + 1280);
+
+    // point the command header -> 0 and using the exact physical offsets
+    uint64_t ct_phys = dma_phys + 1280;
     drive->cmd_list[0].ctba  = (uint32_t)(ct_phys & 0xFFFFFFFF);
     drive->cmd_list[0].ctbau = (uint32_t)(ct_phys >> 32);
 
-    // not too sure why these are done with the PADDR but i tried with the VADDR nad it didnt work
-    uint64_t clb_phys = PHYS(drive->cmd_list);
-    uint64_t fb_phys  = PHYS(drive->fis_buf);
+    uint64_t clb_phys = dma_phys + 0;
+    uint64_t fb_phys  = dma_phys + 1024;
 
     port_write(abar, port, AHCI_PORT_CLB,  (uint32_t)(clb_phys & 0xFFFFFFFF));
     port_write(abar, port, AHCI_PORT_CLBU, (uint32_t)(clb_phys >> 32));
