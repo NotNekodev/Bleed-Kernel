@@ -50,6 +50,7 @@
 #include <drivers/ahci/ahci.h>
 #include <drivers/nvme/nvme.h>
 #include <boot/splash_image.h>
+#include <devices/type/power_device.h>
 
 #define KERNEL_BOOT_TTY_COUNT 4
 #define KERNEL_MAX_LAZY_TTYS 12
@@ -274,6 +275,7 @@ void kmain() {
     PS2_Keyboard_init();     EARLY_OK("PS2 Keyboard init");
     PS2_Mouse_init();        EARLY_OK("Mouse init");
     serial_device_register();EARLY_OK("Serial Device Done");
+    power_device_init();    EARLY_OK("Power Device Done");
 
     vfs_mkdir("/mnt");
     ide_init();
@@ -308,10 +310,6 @@ void kmain() {
     shell_start();
 
     tty0 = kernel_console_init();
-
-    serial_printf(LOG_INFO "PMM: %lu MB free (%lu pages)\n",
-        pmm_available_pages() * 4096 / (1024 * 1024),
-        pmm_available_pages());
 
     for (;;) {
         if (kernel_has_shell_spawn_request()) {
