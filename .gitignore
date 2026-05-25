@@ -19,3 +19,4 @@ initrd/etc/kernel.sym
 initrd/proc/version
 
 *.img
+**/*.DS_Store
