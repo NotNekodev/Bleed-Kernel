@@ -22,8 +22,6 @@ SyscallHandler syscall_handlers[] = {
     SYSCALL(SYS_IOCTL, sys_ioctl),
     SYSCALL(SYS_YIELD, sys_yield),
     SYSCALL(SYS_SPAWN, sys_spawn),
-    SYSCALL(SYS_SHUTDOWN, sys_shutdown),
-    SYSCALL(SYS_REBOOT, sys_reboot),
     SYSCALL(SYS_EXIT, sys_exit),
     SYSCALL(SYS_WAITPID, sys_waitpid),
     SYSCALL(SYS_KILL, sys_kill),

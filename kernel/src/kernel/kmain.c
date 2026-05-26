@@ -242,7 +242,7 @@ void shell_start() {
 void kmain() {
     asm volatile ("cli");
     early_fb_init();
-    EARLY_OK("Welcome to the Bleed Kernel, if you can read this, something has probably gone wrong. sorry"); 
+    EARLY_OK("Welcome to the Bleed Kernel"); 
     gdt_init();         EARLY_OK("GDT");
     sse_enable();       EARLY_OK("SIMD");
     serial_init();      EARLY_OK("Serial");
@@ -250,7 +250,7 @@ void kmain() {
     pmm_init();         EARLY_OK("Physical Memory Manager");
     reinit_paging();    EARLY_OK("Paging Reinitalized");
     vfs_mount_root();   EARLY_OK("VFS Mount");
-    initrd_load();      EARLY_OK("initrd Ram Disk");
+    initrd_load();      EARLY_OK("Ram Disk Ready");
     display_splash_screen("initrd/boot/splash.bgra", 200, 252);
 
     psf_init("initrd/fonts/ttyfont.psf"); EARLY_OK("PSF Font Loaded");

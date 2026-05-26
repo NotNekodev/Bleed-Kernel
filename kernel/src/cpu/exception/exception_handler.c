@@ -165,7 +165,6 @@ extern void* ke_exception_handler(void *frame) {
     kprintf(GRAY_FG "  RCX " WHITE_FG "0x%016llx " GRAY_FG " R10 " WHITE_FG "0x%016llx " GRAY_FG " R14 " WHITE_FG "0x%016llx\n", f->rcx, f->r10, f->r14);
     kprintf(GRAY_FG "  RDX " WHITE_FG "0x%016llx " GRAY_FG " R11 " WHITE_FG "0x%016llx " GRAY_FG " R15 " WHITE_FG "0x%016llx\n", f->rdx, f->r11, f->r15);
     kprintf(GRAY_FG "  RSI " WHITE_FG "0x%016llx " GRAY_FG " RDI " WHITE_FG "0x%016llx " GRAY_FG " RBP " WHITE_FG "0x%016llx\n", f->rsi, f->rdi, f->rbp);
-    
     uint64_t cr2;
     __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
 

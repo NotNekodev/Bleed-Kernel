@@ -44,8 +44,6 @@ enum {
     // bleed kernel specific system calls
     SYS_YIELD           = 512,
     SYS_SPAWN           = 513,
-    SYS_SHUTDOWN        = 514,
-    SYS_REBOOT          = 515,
     SYS_MEMINFO         = 516,
     SYS_TASKCOUNT       = 517,
     SYS_TASKINFO        = 518,
