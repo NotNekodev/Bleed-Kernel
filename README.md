@@ -1,55 +1,30 @@
 # The Bleed Kernel by Mellurboo
+An Operating System Kernel for x86_64 Processors designed as just a passion project. The Bleed Kernel focuses on modern hardware. however, has no interest in anything other than 64 bit.
 
-the bleed kernel is an Operating System Kernel written in C and targets the x86_64 platform exclusively.
+> [!CAUTION]
+> The only offical place to download Bleed is on our website, we have no other official mirrors or sources, be careful when running operating system images. even in a virtual machine.
 
-![Doom running under the bleed kernel](https://cdn.discordapp.com/attachments/1250900206543700138/1473111046397886625/image.png?ex=69950512&is=6993b392&hm=4b7d92854b79d97b8291549d0f2987d8ab7060de777d313befd55dfcc954ec59&)
+![BleedKernel Start Screen](https://github.com/Bleed-Kernel/Bleed-Resources/blob/main/Bleed-Booting.png?raw=true)
 
 ## Requirements
-Generally any reasonable hardware should have this.
-- CPU - 64-bit Processor*
-- RAM - <128MiB
-- IOAPIC
-- HPET
 
-*your processor must support
-- AVX2 (XSAVE, XGETBV, XSETBV)
-- SMAP (clac, stac)
-- APIC
-- PAT
-- UMIP (optional, the kernel will use it if it's there)
+### Minimum Requirements
+> [!WARN]
+> This is for a minimal boot and with a functional shell, you may not be able to run programs like Quake2 or DOOM.
 
-## Bleed Features and why its so cool
-- [x] General Hardware Security Featuees (UMIP, NX, WP)
-- [x] Mathmatical Features speeding up memory operations (AVX2/SSE)
-- [x] Crash Signature for easy debugging
-- [x] ACPI Power and Timer Stack using the HPET
-- [x] IOACPI for Device Interrupts (over the common and obsolete PIT)
-- [x] Kernel and User Memory Management including Seperation
-- [x] Round Robin Premptive Scheduler for Multitasking + Context Switching
-- [x] ELF (non-relocatable) User Program Execution (yes, it can run doom)
-- [x] Unix-Like Devices and Device Handler
-- [x] PS/2 Mouse Drivers
-- [x] FAT32 Support
-- [x] Ext2 Support
-- [x] IDE Harddrive Support
-- [x] SATA Support
-- [x] NVMe Support
-- [x] Mount Points for Block Devices
+| Component | Requirement |
+|---|---|
+| Processor | x86_64 Based Processor |
+| Memory | 256 MiB RAM |
+| Graphics | 2MiB VRAM |
 
-## Upcomming Features
-- [ ] xHCI (HID)
-- [ ] Relocatable Executables
-- [ ] Network Drivers
-- [ ] Symetric Multiprocessing (SMP)
-- [ ] Task-Specific Framebuffers
+### Recommended Requirements
 
-## Hardware Specifications
-I use many machines to test bleed on real hardware so I know it works the way it should.
+| Component | Requirement |
+|---|---|
+| Processor | x86_64 Based Processor |
+| Memory | 512 MiB RAM |
+| Graphics | 16MiB VRAM |
 
-The Dedicated test machine for the bleed kernel is a Dell Optiplex 3040 with an i5-6500 and 4 GiB of Memory, however the machine I
-use to make bleed and often also test on is a Custom Build with a Ryzen 5 9600x and 16 GiB of Memory.
-
-## Related Projects
-[The Verdict Shell - Default shell for the Bleed Kernel](https://codeberg.org/Bleed-Kernel/Verdict-Shell)
-
-[libc interface for the Bleed Kernel](https://codeberg.org/Bleed-Kernel/blibc)
+## Our Website
+Check out [bleedkernel.com](https://bleedkernel.com) our Official Website.
