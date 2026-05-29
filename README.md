@@ -9,7 +9,7 @@ An Operating System Kernel for x86_64 Processors designed as just a passion proj
 ## Requirements
 
 ### Minimum Requirements
-> [!WARN]
+> [!WARNING]
 > This is for a minimal boot and with a functional shell, you may not be able to run programs like Quake2 or DOOM.
 
 | Component | Requirement |
