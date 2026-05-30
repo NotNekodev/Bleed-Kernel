@@ -2,21 +2,22 @@
 #include <drivers/framebuffer/framebuffer.h>
 #include <drivers/framebuffer/draw_image.h>
 #include <mm/kalloc.h>
+#include <stdbool.h>
 
 /// @brief splash screen helper
 /// @param image_path image
 /// @param img_width x
 /// @param img_height y
-void display_splash_screen(const char* image_path, uint32_t img_width, uint32_t img_height) {
+bool display_splash_screen(const char* image_path, uint32_t img_width, uint32_t img_height) {
     int fd = vfs_open(image_path, O_RDONLY);
-    if (fd < 0) return;
+    if (fd < 0) return false;
 
     // alloc buffer
     size_t image_size = img_width * img_height * 4; 
     uint8_t* image_buffer = kmalloc(image_size);
     if (!image_buffer) {
         vfs_close(fd);
-        return;
+        return false;
     }
 
     vfs_read(fd, image_buffer, image_size);
@@ -32,4 +33,5 @@ void display_splash_screen(const char* image_path, uint32_t img_width, uint32_t 
     draw_bgra_image(start_x, start_y, img_width, img_height, image_buffer);
 
     kfree(image_buffer);
+    return true;
 }

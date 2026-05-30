@@ -161,7 +161,7 @@ void paging_init_kernel_map(void) {
 
 /// @brief reinitalise paging so we can access a full memory range, not just the
 /// default from limine
-void reinit_paging(void) {
+void init_paging(void) {
     nx_init();
     pat_enable_wc();
     

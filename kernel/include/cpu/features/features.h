@@ -16,11 +16,11 @@
 // Write Protect
 #define CR0_WP (1ULL << 16)
 
-static inline void UMIP_init(void){
+static inline int UMIP_init(void){
     uint32_t eax, ebx, ecx, edx;
 
     if (!cpuid_count(7, 0, &eax, &ebx, &ecx, &edx))
-        return;
+        return -1;
 
     if ((ecx & (1 << 2)) != 0){
         uint64_t cr4 = read_cr4();
@@ -28,6 +28,8 @@ static inline void UMIP_init(void){
         write_cr4(cr4);
         serial_printf(LOG_OK "UMIP enabled\n"); // post-2017 should be fine
     }
+
+    return 0;
 }
 
 static inline void nx_init(void){
@@ -44,21 +46,6 @@ static inline void wp_enable(void){
     uint64_t cr0 = read_cr0();
     cr0 |= CR0_WP;
     write_cr0(cr0);
-}
-
-static inline bool cpu_has_avx512(void) {
-    uint32_t eax, ebx, ecx, edx;
-
-    if (!cpuid(1, &eax, &ebx, &ecx, &edx))
-        return false;
-
-    if (!(ecx & (1 << 27)) || !(ecx & (1 << 28)))
-        return false;
-
-    if (!cpuid_count(7, 0, &eax, &ebx, &ecx, &edx))
-        return false;
-
-    return (ebx & (1 << 16)) != 0;
 }
 
 void avx_enable(void);

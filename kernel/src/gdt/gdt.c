@@ -28,7 +28,7 @@ static void set_gdt_gate(uint8_t idx, uint32_t base, uint32_t limit, uint8_t acc
 }
 
 /// @brief initalise the better gdt, replacing the one from LIMINE
-void gdt_init(){
+void *gdt_init(){
     set_gdt_gate(0, 0, 0, 0, 0);
     set_gdt_gate(1, 0, 0xFFFFF, 0x9A, 0xA);
     set_gdt_gate(2, 0, 0xFFFFF, 0x92, 0x0);
@@ -39,5 +39,5 @@ void gdt_init(){
     gdt_ptr.length  = sizeof(gdt) - 1;
 
     gdt_load(&gdt_ptr);
-    serial_printf(LOG_OK "Global Descriptor Table Loaded (GDTR=%p)\n", gdt_ptr.address);
+    return gdt_ptr.address;
 }

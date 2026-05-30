@@ -117,7 +117,7 @@ extern void* ke_exception_handler(void *frame) {
         if (f->vector == 14) {
             serial_printf("Page Fault info: error code: %p, cr2: %p\n", f->error_code, cr2);
         }
-
+        
         kprintf("%s%s (%llu) has crashed: %s%s%s, task was killed!\n", LOG_ERROR, get_current_task()->name, get_current_task()->id, RGB_FG(207, 45, 45), exception_name(f->vector), RESET);
         exit();
         __builtin_unreachable();

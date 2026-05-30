@@ -33,7 +33,7 @@ static void idt_set_descriptor(uint8_t vector, void* isr, uint8_t flags){
 }
 
 /// @brief initialise the new idt replacing the one from LIMINE
-void idt_init(){
+uint64_t idt_init(){
     idt_ptr.address = (uintptr_t)&idt[0];
     idt_ptr.limit = (uint16_t)sizeof(idt_entry_t) * DESCRIPTORS_COUNT - 1;
 
@@ -51,5 +51,5 @@ void idt_init(){
     idt_set_descriptor(0x80, irq80, 0xEF);  // syscalls
 
     asm volatile ("lidt %0" : : "m"(idt_ptr));
-    serial_printf(LOG_OK "Interrupt Descriptor Table Loaded (IDTR=%p)\n", (void*)idt_ptr.address);
+    return idt_ptr.address;
 }

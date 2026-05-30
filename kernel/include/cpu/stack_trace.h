@@ -1,8 +1,9 @@
 #pragma once
 
 #include <stdint.h>
+#include <stdbool.h>
 
-int stack_trace_load_symbols(const char *path);
+bool stack_trace_load_symbols(const char *path);
 
 const char *stack_trace_symbol_lookup(uint64_t address, uint64_t *sym_addr_out);
 

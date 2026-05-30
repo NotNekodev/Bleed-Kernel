@@ -36,7 +36,7 @@ extern paddr_t cr3_paddr;
 extern paddr_t kernel_page_map;
 struct task;
 
-void reinit_paging();
+void init_paging();
 
 /// @brief map a physical page at a vaddr using a pd entry
 /// @param paddr physical address to map the page frame at

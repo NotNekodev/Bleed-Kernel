@@ -114,4 +114,4 @@ int tty_create_framebuffer(uint32_t *out_index);
 int tty_set_active_index(uint32_t index);
 
 void fb_clear(fb_console_t *fb);
-void tty_device_init(INode_t* tty_inode);
+void tty_device_init(void);

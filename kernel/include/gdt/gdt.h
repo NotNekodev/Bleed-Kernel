@@ -31,4 +31,4 @@ struct gdt_ptr_t{
 } __attribute__((packed));
 
 /// @brief initalise the better gdt, replacing the one from LIMINE
-void gdt_init();
+void *gdt_init();

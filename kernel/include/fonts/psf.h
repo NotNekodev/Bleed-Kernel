@@ -59,4 +59,4 @@ void psf_free_font(psf_font_t *font);
 
 /// @brief load the inital font from PSF
 /// @param font_path_abs target initial PSF
-void psf_init(const char* font_path_abs);
+bool psf_init(const char *font_path_abs);

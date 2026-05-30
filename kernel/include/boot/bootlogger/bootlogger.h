@@ -1,28 +1,24 @@
 #pragma once
 
 #include <stdint.h>
+#include <stdarg.h>
 
-// does not clear the screen
-void early_fb_init(void);
-void early_fb_write_char(char c, uint32_t col, uint32_t row);
-void early_fb_write_string(const char *str, uint32_t col, uint32_t row);
-void early_fb_puts(const char *str);
-void early_fb_puts_reset(void);
-void early_fb_write_hex(uint64_t value, uint32_t col, uint32_t row);
-void early_fb_write_dec(uint64_t value, uint32_t col, uint32_t row);
-void early_fb_clear(uint32_t color);
+#define BCOL_RGB(r,g,b)  ((uint32_t)(((r)<<16)|((g)<<8)|(b)))
 
+#define BCOL_WHITE       BCOL_RGB(0xFF,0xFF,0xFF)
+#define BCOL_BLACK       BCOL_RGB(0x00,0x00,0x00)
+#define BCOL_RED         BCOL_RGB(0xFF,0x55,0x55)
+#define BCOL_GREEN       BCOL_RGB(0x55,0xFF,0x55)
+#define BCOL_YELLOW      BCOL_RGB(0xFF,0xFF,0x55)
+#define BCOL_CYAN        BCOL_RGB(0x55,0xFF,0xFF)
+#define BCOL_GREY        BCOL_RGB(0xAA,0xAA,0xAA)
+#define BCOL_DARK_GREY   BCOL_RGB(0x55,0x55,0x55)
 
-#define EARLY_PUTS(msg)          early_fb_puts("[....] " msg "\n")
-#define EARLY_OK(msg)            early_fb_puts("[ OK ] " msg "\n")
-#define EARLY_INFO(msg)          early_fb_puts("[INFO] " msg "\n")
-#define EARLY_FAIL(msg)          early_fb_puts("[FAIL] " msg "\n")
+#define FONT_W  8
+#define FONT_H  16
 
-// font curtosy of claude, thanks.
-// i could have done this so many ways, but the early boot debugger is just a tool for real hardware
-// when serial isnt accessable, I dont care about this. as long as it works,
-// it has to be slim though.
-static const uint8_t font8x16[96][16] = {
+// font curtosy of claude
+static const uint8_t font8x16[96][FONT_H] = {
     /* 0x20 ' '  */ {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00},
     /* 0x21 '!'  */ {0x00,0x00,0x18,0x3C,0x3C,0x3C,0x18,0x18,0x18,0x00,0x18,0x18,0x00,0x00,0x00,0x00},
     /* 0x22 '"'  */ {0x00,0x00,0x66,0x66,0x66,0x24,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00},
@@ -120,3 +116,71 @@ static const uint8_t font8x16[96][16] = {
     /* 0x7E '~'  */ {0x00,0x76,0xDC,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00},
     /* 0x7F DEL  */ {0x00,0x00,0x00,0x10,0x38,0x6C,0xC6,0xC6,0xFE,0x00,0x00,0x00,0x00,0x00,0x00,0x00},
 };
+
+void bconsole_init(void);
+void bconsole_clear(uint32_t color);
+
+void bprintf(const char *fmt, ...);
+void bvprintf(const char *fmt, va_list ap);
+
+void bset_color(uint32_t fg, uint32_t bg);
+void breset_color(void);
+
+void bconsole_reset_cursor(void);
+void bconsole_set_cursor(uint32_t col, uint32_t row);
+
+#define BLOG_OK(msg)    do {                              \
+    bset_color(BCOL_GREEN,  BCOL_BLACK);                  \
+    bprintf("[ OK ] ");                                   \
+    bset_color(BCOL_WHITE,  BCOL_BLACK);                  \
+    bprintf("%s\n", (msg));                               \
+} while(0)
+ 
+#define BLOG_FAIL(msg)  do {                              \
+    bset_color(BCOL_RED,    BCOL_BLACK);                  \
+    bprintf("[FAIL] ");                                   \
+    bset_color(BCOL_WHITE,  BCOL_BLACK);                  \
+    bprintf("%s\n", (msg));                               \
+} while(0)
+ 
+#define BLOG_INFO(msg)  do {                              \
+    bset_color(BCOL_CYAN,   BCOL_BLACK);                  \
+    bprintf("[INFO] ");                                   \
+    bset_color(BCOL_WHITE,  BCOL_BLACK);                  \
+    bprintf("%s\n", (msg));                               \
+} while(0)
+ 
+#define BLOG_WARN(msg)  do {                              \
+    bset_color(BCOL_YELLOW, BCOL_BLACK);                  \
+    bprintf("[WARN] ");                                   \
+    bset_color(BCOL_WHITE,  BCOL_BLACK);                  \
+    bprintf("%s\n", (msg));                               \
+} while(0)
+ 
+#define BLOG_OKF(fmt, ...)    do {                        \
+    bset_color(BCOL_GREEN,  BCOL_BLACK);                  \
+    bprintf("[ OK ] ");                                   \
+    bset_color(BCOL_WHITE,  BCOL_BLACK);                  \
+    bprintf(fmt "\n", ##__VA_ARGS__);                     \
+} while(0)
+ 
+#define BLOG_FAILF(fmt, ...)  do {                        \
+    bset_color(BCOL_RED,    BCOL_BLACK);                  \
+    bprintf("[FAIL] ");                                   \
+    bset_color(BCOL_WHITE,  BCOL_BLACK);                  \
+    bprintf(fmt "\n", ##__VA_ARGS__);                     \
+} while(0)
+ 
+#define BLOG_INFOF(fmt, ...)  do {                        \
+    bset_color(BCOL_CYAN,   BCOL_BLACK);                  \
+    bprintf("[INFO] ");                                   \
+    bset_color(BCOL_WHITE,  BCOL_BLACK);                  \
+    bprintf(fmt "\n", ##__VA_ARGS__);                     \
+} while(0)
+ 
+#define BLOG_WARNF(fmt, ...)  do {                        \
+    bset_color(BCOL_YELLOW, BCOL_BLACK);                  \
+    bprintf("[WARN] ");                                   \
+    bset_color(BCOL_WHITE,  BCOL_BLACK);                  \
+    bprintf(fmt "\n", ##__VA_ARGS__);                     \
+} while(0)

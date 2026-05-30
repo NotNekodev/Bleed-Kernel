@@ -1,320 +1,300 @@
+#include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h>
-#include <ansii.h>
+
 #include <vendor/limine_bootloader/limine.h>
-#include <drivers/ps2/PS2_keyboard.h>
-#include <drivers/ps2/PS2_mouse.h>
+#include <boot/bootlogger/bootlogger.h>
+#include <drivers/serial/serial.h>
+#include <kernel/bootargs.h>
+#include <ansii.h>
+
+#include <cpu/features/simd.h>
+#include <cpu/features/features.h>
 #include <gdt/gdt.h>
 #include <idt/idt.h>
-#include <string.h>
-#include <mm/pmm.h>
-#include <mm/kalloc.h>
-#include <mm/paging.h>
-#include <mm/smap.h>
-#include <drivers/serial/serial.h>
-#include <fs/vfs.h>
-#include <status.h>
-#include <fs/archive/tar.h>
-#include <sys/sleep.h>
-#include <fonts/psf.h>
-#include <drivers/framebuffer/framebuffer.h>
-#include <boot/sysinfo/sysinfo.h>
-#include <devices/type/tty_device.h>
-#include <devices/device_io.h>
-#include <console/console.h>
-#include <sched/scheduler.h>
-#include <threads/exit.h>
-#include <cpu/stack_trace.h>
-#include <syscalls/syscall.h>
-#include <ACPI/acpi_time.h>
-#include <mm/vmm.h>
-#include <exec/elf_load.h>
-#include <devices/type/fb_device.h>
-#include <devices/type/kbd_device.h>
-#include <boot/earlyboot_console.h>
-#include <devices/type/mouse_device.h>
-#include <ACPI/acpi.h>
 #include <tss/tss.h>
-#include <panic.h>
-#include <ACPI/acpi_hpet.h>
-#include <devices/type/kbd_device.h>
-#include <kernel/kmain.h>
-#include <kernel/bootargs.h>
-#include <cpu/features/features.h>
-#include <devices/type/serial_device.h>
-#include <devices/type/hpet_device.h>
-#include <drivers/ide/ide.h>
-#include <fs/fat32/fat32.h>
-#include <devices/type/blk_device.h>
+#include <mm/paging.h>
+#include <mm/pmm.h>
+#include <mm/smap.h>
+
+#include <fs/vfs.h>
 #include <fs/vfs_mount.h>
+#include <fs/archive/tar.h>
+#include <fonts/psf.h>
+#include <boot/splash_image.h>
+#include <cpu/stack_trace.h>
+
+#include <ACPI/acpi.h>
+#include <ACPI/acpi_hpet.h>
+
+#include <drivers/ps2/PS2_mouse.h>
+#include <drivers/ps2/PS2_keyboard.h>
+#include <devices/type/hpet_device.h>
+#include <devices/type/mouse_device.h>
+#include <devices/type/kbd_device.h>
+#include <devices/type/fb_device.h>
+#include <devices/type/power_device.h>
+#include <devices/type/serial_device.h>
+#include <devices/type/tty_device.h>
+
+#include <drivers/ide/ide.h>
 #include <drivers/ahci/ahci.h>
 #include <drivers/nvme/nvme.h>
-#include <boot/splash_image.h>
-#include <devices/type/power_device.h>
+#include <devices/type/blk_device.h>
 
-#define KERNEL_BOOT_TTY_COUNT 4
-#define KERNEL_MAX_LAZY_TTYS 12
+#include <sched/scheduler.h>
+
+#include <exec/elf_load.h>
+#include <syscalls/syscall.h>
+#include <kernel/kmain.h>
 
 extern volatile struct limine_module_request module_request;
 extern volatile struct limine_rsdp_request rsdp_request;
 extern volatile struct limine_executable_cmdline_request cmdline_request;
 
-extern void avx_enable(void);
-extern void sse_enable(void);
 tty_t tty0;
 
-static INode_t *g_shell_elf = NULL;
-static char g_shell_path[256];
-static uint8_t g_shell_spawned[KERNEL_MAX_LAZY_TTYS];
-static volatile uint32_t g_lazy_spawn_pending_mask = 0;
-static spinlock_t g_shell_spawn_lock = {0};
+#define KERNEL_STOP()                           \
+    do {                                        \
+        __asm__ volatile (                      \
+            "cli\n\t"                           \
+            "1: hlt\n\t"                        \
+            "jmp 1b"                            \
+        );                                      \
+    } while (0)
 
-static int kernel_bind_stdio_to_tty(uint32_t tty_index) {
-    char tty_name[16];
-    snprintf(tty_name, sizeof(tty_name), "tty%u", tty_index);
-    INode_t *tty_inode = device_get_by_name(tty_name);
-    if (!tty_inode)
-        return -1;
-
-    fd_table_t *boot_fds = vfs_get_kernel_table();
-    if (!boot_fds)
-        return -1;
-
-    file_t *f = kmalloc(sizeof(file_t));
-    if (!f)
-        return -1;
-    memset(f, 0, sizeof(*f));
-    f->type = FD_TYPE_DEV;
-    f->inode = tty_inode;
-    f->flags = O_RDWR;
-    f->offset = 0;
-
-    // fd[1] + fd[2] share the same file_t plus 1 permanent pin
-    f->shared = 3;
-
-    boot_fds->fds[1] = f;
-    boot_fds->fds[2] = f;
-    return 0;
-}
-
-int kernel_spawn_shell_on_tty(uint32_t tty_index) {
-    if (tty_index >= KERNEL_MAX_LAZY_TTYS)
-        return -1;
-    if (!g_shell_elf)
-        return -1;
-    if (g_shell_spawned[tty_index])
-        return 0;
-
-    if (kernel_bind_stdio_to_tty(tty_index) < 0)
-        return -1;
-
-    if (!elf_sched(g_shell_elf, 0, NULL))
-        return -1;
-
-    g_shell_spawned[tty_index] = 1;
-    return 0;
-}
-
-void kernel_request_shell_spawn(uint32_t tty_index) {
-    if (tty_index >= KERNEL_MAX_LAZY_TTYS)
-        return;
-    if (!g_shell_elf)
-        return;
-
-    unsigned long irq = irq_push();
-    spinlock_acquire(&g_shell_spawn_lock);
-    if (!g_shell_spawned[tty_index]) {
-        g_lazy_spawn_pending_mask |= (1u << tty_index);
+void init_processor_state(){
+    BLOG_INFO("Attempting to initialise GDT");
+    void* gdt_ptr = gdt_init();
+    if (gdt_ptr){
+        BLOG_OKF("GDT Ready -- %p", gdt_ptr);
+        serial_printf(LOG_OK "Global Descriptor Table Loaded (GDTR=%p)\n", gdt_ptr);
+    }else{
+        BLOG_FAIL("GDT returned a NULL Pointer, this is unrecoverable. system halted");
+        KERNEL_STOP();
     }
-    spinlock_release(&g_shell_spawn_lock);
-    irq_restore(irq);
-}
 
-int kernel_has_shell_spawn_request(void) {
-    return g_lazy_spawn_pending_mask != 0;
-}
-
-void kernel_service_shell_spawn_requests(void) {
-    uint32_t pending = 0;
-
-    unsigned long irq = irq_push();
-    spinlock_acquire(&g_shell_spawn_lock);
-    pending = g_lazy_spawn_pending_mask;
-    g_lazy_spawn_pending_mask = 0;
-    spinlock_release(&g_shell_spawn_lock);
-    irq_restore(irq);
-
-    if (!pending)
-        return;
-
-    for (uint32_t i = 0; i < KERNEL_MAX_LAZY_TTYS; i++) {
-        if (pending & (1u << i)) {
-            (void)kernel_spawn_shell_on_tty(i);
-        }
+    BLOG_INFO("Attempting to initialise IDT");
+    uint64_t idt_ptr = idt_init();
+    if (idt_ptr){
+        BLOG_OKF("IDT Ready -- %p", idt_ptr);
+        serial_printf(LOG_OK "Interrupt Descriptor Table Loaded (IDTR=%p)\n", idt_ptr);
+    }else{
+        BLOG_FAIL("IDT returned a NULL Pointer, this is unrecoverable. system halted");
+        KERNEL_STOP();
     }
+
+    BLOG_INFO("Attempting to initialise TSS");
+    tss_init();
+    BLOG_OK("TSS Ready");
+    serial_printf(LOG_OK "TSS Ready\n");
+
+    BLOG_INFO("Attempting to initialise the Physical Memory Manager");
+    pmm_init();
+    BLOG_OK("Physical Memory Manager Ready");
+    serial_printf(LOG_OK "Physical Memory Manager Ready\n");
+
+    BLOG_INFO("Attempting to initialise Paging");
+    init_paging();
+    BLOG_OK("Paging Ready");
+    serial_printf(LOG_OK "Paging Ready\n");
+
+    BLOG_INFO("Attempting to enable SIMD");
+    simd_level_t sse_level = simd_enable();
+    BLOG_OKF("SIMD is Ready\n\tYour Processor Supports %s", simd_level_name(sse_level));
+    serial_printf(LOG_OK "%s Ready\n", simd_level_name(sse_level));
 }
 
-void initrd_load(){ 
+void init_ramdisk(){
+    BLOG_INFO("Mounting Root");
+    vfs_mount_root();
+    BLOG_OK("Root Mounted");
+
+    BLOG_INFO("Locating initrd from Bootloader");
     if (!module_request.response || module_request.response->module_count == 0){
-        kprintf("No Modules Found by booloader\n");
+        BLOG_FAIL("No Modules Found by booloader\n");
         return;
     }
+    BLOG_OK("Located initrd");
 
+    BLOG_INFO("Attempting to Extract initrd");
     struct limine_file* initrd = module_request.response->modules[0];
     tar_extract(initrd->address, initrd->size);
-    return;
-}
+    BLOG_OK("initrd extracted successfully");
 
-// we give the kernel a task here
-void scheduler_start(void) {
-    uint64_t rsp;
-    asm volatile("mov %%rsp, %0" : "=r"(rsp));
+    BLOG_INFO("Loading Kernel Resources");
 
-    sched_bootstrap((void *)rsp);
-}
+    bool splash_display = display_splash_screen("initrd/boot/splash.bgra", 200, 252);
+    if (splash_display)
+        BLOG_OK("\t - BGRA Splash Image");
+    else
+        BLOG_FAIL("\t x BGRA Splash Image");
+    
+    bool font_init = psf_init("initrd/fonts/ttyfont.psf");
+    if (font_init)
+        BLOG_OK("\t - PSF Font");
+    else
+        BLOG_FAIL("\t x PSF Font");
 
-void shell_start() {
-    const char* target_path = NULL;
-    char path_buffer[256];
-
-    if (bootargs_is("shell-path", "default")) {
-        kprintf(LOG_INFO "Loading default shell path from initrd/etc/shell...\n");
-        
-        int sfd = vfs_open("initrd/etc/shell", O_RDONLY);
-        if (sfd < 0) {
-            kprintf(LOG_ERROR "Could not open initrd/etc/shell. System halted.\n");
-            return; 
-        }
-
-        memset(path_buffer, 0, sizeof(path_buffer));
-        long bytes_read = vfs_read(sfd, path_buffer, sizeof(path_buffer) - 1);
-        vfs_close(sfd);
-
-        if (bytes_read <= 0) {
-            kprintf(LOG_ERROR "Shell path file is empty or unreadable.\n");
-            return;
-        }
-
-        for (int i = 0; i < bytes_read; i++) {
-            if (path_buffer[i] == '\n' || path_buffer[i] == '\r' || path_buffer[i] == ' ') {
-                path_buffer[i] = '\0';
-                break;
-            }
-        }
-        
-        target_path = path_buffer;
-    } else {
-        target_path = bootargs_get("shell-path");
-    }
-
-    if (target_path && target_path[0] != '\0') {
-        memset(g_shell_spawned, 0, sizeof(g_shell_spawned));
-        memset(g_shell_path, 0, sizeof(g_shell_path));
-        strncpy(g_shell_path, target_path, sizeof(g_shell_path) - 1);
-        g_shell_path[sizeof(g_shell_path) - 1] = '\0';
-
-        kprintf(LOG_INFO "Starting init process %s\n", g_shell_path);
-
-        g_shell_elf = elf_get_from_path(g_shell_path);
-        if (!g_shell_elf) {
-            kprintf(LOG_ERROR "Failed to load ELF: %s\n", g_shell_path);
-            return;
-        }
-
-        for (uint32_t i = 1; i < KERNEL_BOOT_TTY_COUNT; i++) {
-            if (tty_create_framebuffer(NULL) < 0) {
-                kprintf(LOG_WARN "Failed to create tty%u\n", i);
-                break;
-            }
-        }
-
-        if (kernel_spawn_shell_on_tty(0) < 0) {
-            kprintf(LOG_WARN "Failed to start shell on tty0\n");
-        }
-
-        (void)tty_set_active_index(0);
-        (void)kernel_bind_stdio_to_tty(0);
-    } else {
-        kprintf(LOG_ERROR "No valid shell path provided.\n");
+    bool kernel_symtab = stack_trace_load_symbols("initrd/etc/kernel.sym");
+    if (kernel_symtab)
+        BLOG_OK("\t - Kernel Symbol Table");
+    else
+        BLOG_FAIL("\t x Kernel Symbol Table");
+    
+    if (splash_display && font_init && kernel_symtab){
+        BLOG_OK("Kernel Resources Ready");
     }
 }
 
-void kmain() {
-    asm volatile ("cli");
-    early_fb_init();
-    EARLY_OK("Welcome to the Bleed Kernel"); 
-    gdt_init();         EARLY_OK("GDT");
-    sse_enable();       EARLY_OK("SIMD");
-    serial_init();      EARLY_OK("Serial");
-    idt_init();         EARLY_OK("IDT");
-    pmm_init();         EARLY_OK("Physical Memory Manager");
-    reinit_paging();    EARLY_OK("Paging Reinitalized");
-    vfs_mount_root();   EARLY_OK("VFS Mount");
-    initrd_load();      EARLY_OK("Ram Disk Ready");
-    display_splash_screen("initrd/boot/splash.bgra", 200, 252);
+void init_firmware_relationship(){
+    BLOG_INFO("Attempting to initialise ACPI");
+    acpi_init();    // dont worry, if this fails we just kepanic lol
+    BLOG_OK("ACPI Ready");
+}
 
-    psf_init("initrd/fonts/ttyfont.psf"); EARLY_OK("PSF Font Loaded");
+void init_devices(){
+    BLOG_INFO("Starting framebuffer Device");
+    fb_device_init();
+    BLOG_OK("framebuffer Device Ready");
 
-    if (stack_trace_load_symbols("initrd/etc/kernel.sym") < 0) {
-        kprintf(LOG_WARN "Failed to load kernel symbols from initrd/etc/kernel.sym\n");
-    } else {
-        kprintf(LOG_OK "Kernel symbols loaded from initrd/etc/kernel.sym\n");
-    }
+    BLOG_INFO("Starting HPET Device");
+    acpi_init_hpet();
+    hpet_device_init();
+    BLOG_OK("HPET Device Ready");
 
-    acpi_init();        EARLY_OK("ACPI Read");
-    tss_init();         EARLY_OK("TSS Done");
-    syscall_init();     EARLY_OK("Syscalls Setup");
-    fb_device_init();   EARLY_OK("FB Device Init");
+    BLOG_INFO("Starting keyboard Device");
+    PS2_Keyboard_init();
+    kbd_device_init();
+    BLOG_OK("keyboard Device Ready");
 
-    bootargs_init(cmdline_request.response->cmdline);
-    acpi_init_hpet();   EARLY_OK("HPET Done");
-    hpet_device_init(); EARLY_OK("HPET Device Created");
+    BLOG_INFO("Starting mouse Device");
+    PS2_Mouse_init();
+    mouse_device_init();
+    BLOG_OK("mouse Device Ready");
 
-    kbd_device_init();       EARLY_OK("KBD Device Done");
-    mouse_device_init();     EARLY_OK("Mouse Device Done");
-    PS2_Keyboard_init();     EARLY_OK("PS2 Keyboard init");
-    PS2_Mouse_init();        EARLY_OK("Mouse init");
-    serial_device_register();EARLY_OK("Serial Device Done");
-    power_device_init();    EARLY_OK("Power Device Done");
+    BLOG_INFO("Starting serial Device");
+    serial_device_register();
+    BLOG_OK("serial Device Ready");
 
+    BLOG_INFO("Starting power Device");
+    power_device_init();
+    BLOG_OK("power Device Ready");
+
+    tty_device_init();
+}
+
+void init_block_devices(){
     vfs_mkdir("/mnt");
+
+    BLOG_INFO("Block Devices");
     ide_init();
     INode_t *hda1 = device_get_by_name("hda1");
-    if (hda1) vfs_mount("/mnt/ide", hda1);
-    EARLY_OK("Mounted ide");
+    if (hda1){
+        vfs_mount("/mnt/ide", hda1);
+        BLOG_OK("\t - IDE Device Ready");
+    }
 
     ahci_init();
     INode_t *sda1 = device_get_by_name("sda1");
-    if (sda1) vfs_mount("/mnt/sata", sda1);
-    EARLY_OK("Mounted SATA");
+    if (sda1){
+        vfs_mount("/mnt/sata", sda1);
+        BLOG_OK("\t - SATA Device Ready");
+    }
 
     nvme_init();
     INode_t *nvme0p1 = device_get_by_name("nvme0p1");
-    if (nvme0p1) vfs_mount("/mnt/nvme", nvme0p1);
-    EARLY_OK("Mounted NVME");
+    if (nvme0p1){
+        vfs_mount("/mnt/nvme", nvme0p1);
+        BLOG_OK("\t - NVMe Device Ready");
+    }
 
-    scheduler_start();  EARLY_OK("Scheduler Started");
+    BLOG_OK("Block Device Probing");
+}
 
-    INode_t* tty_inode = device_get_by_name("tty0");
-    tty_device_init(tty_inode); EARLY_OK("TTY Device Setup");
+void init_multitasking(){
+    BLOG_INFO("Attempting to start the scheduler");
+    uint64_t rsp;
+    asm volatile("mov %%rsp, %0" : "=r"(rsp));
+    sched_bootstrap((void *)rsp);
+    BLOG_OK("Scheduler Started");
 
-    asm volatile ("sti"); EARLY_OK("Enabled Interrupts");
+    BLOG_INFO("Attempting to start the Task Reaper");
+    task_t *reaper = NULL;
+    reaper = sched_create_task(read_cr3(), (uint64_t)scheduler_reap, KERNEL_CS, KERNEL_SS, "reaper");
 
-    sched_create_task(read_cr3(), (uint64_t)scheduler_reap, KERNEL_CS, KERNEL_SS, "reaper");
-    EARLY_OK("Reaper Task Started");
+    if (reaper != NULL)
+        BLOG_OK("Reaper Started");
+    else
+        BLOG_FAIL("Task Reaper did not start");
+    
+}
 
-    supervisor_memory_protection_init();
-    EARLY_OK("SMIP enabled");
-    UMIP_init();
-    EARLY_OK("UMIP enabled");
-    shell_start();
+bool init_userspace(){
+    BLOG_INFO("Attempting to enable SYSCALL");
+    syscall_init();
+    BLOG_OK("SYSCALL enabled");
 
+    BLOG_INFO("Attempting to enable SMAP/SMEP");
+    int smap_status = SMAP_init();
+    if (smap_status == 0){
+        BLOG_OK("SMAP Enabled");
+    }else if (smap_status == -1){
+        BLOG_WARN("SMEP is not Supported");
+    }else if (smap_status == -2){
+        BLOG_WARN("SMAP is not Supported");
+    }else{
+        BLOG_WARN("SMEP & SMEP are not Supported");
+    }
+
+    BLOG_INFO("Attempting to enable UMIP");
+    int umip_status = UMIP_init();
+    if (umip_status == 0){
+        BLOG_OK("UMIP Enabled");
+    }else{
+        BLOG_WARN("UMIP Not Supported");
+    }
+
+    BLOG_INFO("Attempting to start init");
+    const char* init_path = NULL;
+    init_path = bootargs_get("init");
+
+    INode_t *init_elf = elf_get_from_path(init_path);
+    task_t *init = elf_sched(init_elf, 0, NULL);
+    if (init != NULL)
+        BLOG_OK("Init Task started!");
+    else
+        BLOG_FAIL("Failed to start init task!");
+
+    return true;
+}
+
+__attribute__((noreturn))
+void kmain(void){
+    asm volatile("cli");
+    serial_init();
+    
+    bconsole_init();
+    
+    BLOG_INFO("Starting the Bleed Kernel\n\t\
+by Myles 'Mellurboo' Wilson\n\t\
+myles@bleedkernel.com\n\t\
+Licenced under GPLv3\n");
+
+    init_processor_state();
+
+    // We have to recall this because of the changes to memory
+    // in general, it is NOT wasteful do not remove it
+    bootargs_init(cmdline_request.response->cmdline);
+
+    init_ramdisk();
+    init_firmware_relationship();
+    init_devices();
+    init_block_devices();
+    init_multitasking();
+    asm volatile("sti");
+
+    init_userspace();   // if this fails, kernel panic
     tty0 = kernel_console_init();
 
-    for (;;) {
-        if (kernel_has_shell_spawn_request()) {
-            kernel_service_shell_spawn_requests();
-        }
-        sched_yield(get_current_task());
-    }
+    for(;;){}
 }

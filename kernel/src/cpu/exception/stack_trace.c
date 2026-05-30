@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <ansii.h>
 #include <drivers/serial/serial.h>
 #include <mm/kalloc.h>
@@ -21,26 +22,26 @@ static struct ksymtab kernel_symbols;
 static void *kernel_symbols_blob = NULL;
 static size_t kernel_symbols_blob_size = 0;
 
-int stack_trace_load_symbols(const char *path){
+bool stack_trace_load_symbols(const char *path){
     INode_t *file = NULL;
     path_t filepath = vfs_path_from_abs(path);
     if (vfs_lookup(&filepath, &file) < 0 || !file)
-        return -1;
+        return false;
 
     size_t sz = vfs_filesize(file);
     if (sz < sizeof(size_t)) {
         vfs_drop(file);
-        return -1;
+        return false;
     }
 
     void *buf = kmalloc(sz);
     if (!buf)
-        return -1;
+        return false;
 
     if (inode_read(file, buf, sz, 0) != (long)sz) {
         vfs_drop(file);
         kfree(buf);
-        return -1;
+        return false;
     }
     vfs_drop(file);
 
@@ -50,13 +51,13 @@ int stack_trace_load_symbols(const char *path){
 
     if (kernel_symbols.count > (sz / sizeof(struct ksym))) {
         kfree(buf);
-        return -1;
+        return false;
     }
 
     size_t syms_bytes = sizeof(struct ksym) * kernel_symbols.count;
     if (sizeof(size_t) + syms_bytes > sz) {
         kfree(buf);
-        return -1;
+        return false;
     }
 
     if (kernel_symbols_blob && kernel_symbols_blob_size)
@@ -69,7 +70,7 @@ int stack_trace_load_symbols(const char *path){
     kernel_symbols_blob = buf;
     kernel_symbols_blob_size = sz;
 
-    return 0;
+    return true;
 }
 
 const char *stack_trace_symbol_lookup(uint64_t address, uint64_t *sym_addr_out){

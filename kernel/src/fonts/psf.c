@@ -3,6 +3,7 @@
 #include <mm/kalloc.h>
 #include <drivers/serial/serial.h>
 #include <fonts/utf-8.h>
+#include <stdbool.h>
 
 typedef struct {
     uint32_t magic;
@@ -160,10 +161,11 @@ const uint8_t *psf_get_glyph_font(const psf_font_t *font, uint16_t code) {
     return font->glyphs + (code * font->bytes_per_glyph);
 }
 
-void psf_init(const char *font_path_abs) {
+bool psf_init(const char *font_path_abs) {
     path_t path = vfs_path_from_abs(font_path_abs);
     INode_t *inode;
-    if (vfs_lookup(&path, &inode) < 0) return;
+    if (vfs_lookup(&path, &inode) < 0) return false;
     current_font = psf_load_font(inode);
     vfs_drop(inode);
+    return true;
 }
