@@ -13,8 +13,6 @@ cpu_context_t *timer_handle(cpu_context_t *ctx) {
 
 void irq_handler(uint8_t irq) {
     switch (irq) {
-        case 0:
-            break;
         case 1:
             PS2_Keyboard_Interrupt(irq);
             break;

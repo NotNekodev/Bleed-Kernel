@@ -51,8 +51,6 @@ extern volatile struct limine_module_request module_request;
 extern volatile struct limine_rsdp_request rsdp_request;
 extern volatile struct limine_executable_cmdline_request cmdline_request;
 
-tty_t tty0;
-
 #define KERNEL_STOP()                           \
     do {                                        \
         __asm__ volatile (                      \
@@ -294,7 +292,7 @@ Licenced under GPLv3\n");
     asm volatile("sti");
 
     init_userspace();   // if this fails, kernel panic
-    tty0 = kernel_console_init();
+    kernel_console_init();
 
     for(;;){}
 }
